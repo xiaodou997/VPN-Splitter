@@ -1,225 +1,130 @@
-# VPN Splitter v0.1 Requirements
-
-Status: Draft  
-Platform: macOS 26+  
-Last updated: 2026-09-23
-
-## 1. Goal
-
-VPN Splitter provides a unified split-tunneling policy layer for:
-
-- WireGuard profiles imported from `.conf`
-- OpenVPN profiles imported from `.ovpn`
-- Existing third-party full-tunnel VPN applications
-
-The product separates **how a VPN tunnel is created** from **how traffic is selected for that tunnel**.
-
-## 2. Core concepts
-
-### 2.1 Egress
-
-An egress is a network path that traffic can use.
-
-Initial egress types:
-
-- `DIRECT`: primary physical network
-- `VPN`: active managed or external VPN tunnel
-- `REJECT`: deny traffic
-
-Future egress types may include:
-
-- named WireGuard/OpenVPN profiles
-- HTTP/SOCKS proxies
-- mihomo proxy groups
-- multiple simultaneous VPN tunnels
-
-### 2.2 Policy modes
-
-#### Include mode
-
-Default traffic is DIRECT. Explicit rules enter the VPN.
-
-Typical corporate use case:
-
-```text
-*.company.internal -> VPN
-10.0.0.0/8         -> VPN
-default             -> DIRECT
-```
-
-#### Bypass mode
-
-Default traffic enters the VPN. Explicit rules bypass it.
-
-Typical third-party full-tunnel use case:
-
-```text
-github.com -> DIRECT
-openai.com -> DIRECT
-default    -> VPN
-```
-
-## 3. v0.1 functional requirements
-
-### 3.1 WireGuard managed mode
-
-- Import standard WireGuard `.conf`
-- Parse Interface and Peer sections
-- Store secrets securely in macOS Keychain
-- Establish a tunnel using Apple Network Extension
-- Preserve peer reachability semantics while allowing local split-routing policy
-- Support IPv4 CIDR routing
-- Support domain-based rules through DNS resolution / split DNS policy
-- Expose connect, disconnect, reconnect, and status
-- Provide diagnostics
-
-### 3.2 OpenVPN managed mode
-
-- Import common `.ovpn` client profiles
-- Support TCP and UDP transports
-- Support embedded and referenced CA/certificate/key material
-- Support username/password authentication
-- Support common TLS authentication/encryption directives
-- Read server-pushed routes and DNS settings
-- Allow local policy to reject/override a pushed full-tunnel route
-- Support IPv4 routing and split DNS
-- Do not execute arbitrary `up`, `down`, `plugin`, or shell directives in v0.1
-
-The exact OpenVPN profile compatibility matrix will be frozen after the OpenVPN technical spike.
-
-### 3.3 External VPN compatibility mode
-
-VPN Splitter does not authenticate or establish the third-party VPN.
-
-It must:
-
-- detect the primary physical interface
-- detect the physical gateway
-- detect newly created tunnel interfaces
-- diff routing tables before/after VPN activation
-- detect DNS changes
-- identify common full-tunnel patterns, including:
-  - default route replacement
-  - `0.0.0.0/1` + `128.0.0.0/1`
-  - host routes that keep the VPN server reachable through the physical gateway
-- classify the VPN's compatibility level
-- apply split rules only when the selected backend is known to be safe
-- restore owned changes on disconnect
-- reconcile after VPN reconnect, DHCP renew, network switch, sleep, and wake
-
-External mode must not:
-
-- inject code into another VPN process
-- patch or modify the third-party application
-- copy credentials from the third-party application
-- claim support where an enforced system/MDM policy prevents split tunneling
-
-### 3.4 Rules
-
-Required v0.1 rule types:
-
-- DOMAIN
-- DOMAIN-SUFFIX
-- IP-CIDR
-- IP-CIDR6: parser may exist, full IPv6 support may remain experimental
-- MATCH/default
-
-Required actions:
-
-- DIRECT
-- VPN
-- REJECT
-
-Rule ordering must be deterministic and diagnosable.
-
-### 3.5 DNS
-
-Managed tunnels must support split DNS.
-
-Requirements:
-
-- VPN-only resolver domains
-- system/default resolver for non-VPN domains
-- DNS state restoration on disconnect
-- diagnostic output showing which resolver was selected
-
-External mode may initially preserve the third-party VPN DNS configuration if safe split DNS cannot be guaranteed. This behavior must be visible to the user.
-
-### 3.6 Diagnostics
-
-Diagnostics are part of v0.1, not a later support feature.
-
-Minimum report:
-
-- physical interface / address / gateway
-- tunnel interface / address
-- current default route
-- detected full-tunnel mechanism
-- DNS resolvers
-- rule match result for a hostname/IP
-- selected egress
-- connection state
-- compatibility warnings
-- sanitized logs
-
-Secrets must never be included in diagnostics.
-
-## 4. Reliability requirements
-
-The product must handle:
-
-- VPN reconnect
-- tunnel interface number changes
-- Wi-Fi reconnect
-- Wi-Fi <-> Ethernet switch
-- DHCP renew
-- sleep / wake
-- DNS changes
-- app restart while VPN is already active
-
-No configuration may assume a fixed `utunN` interface name.
-
-## 5. Security requirements
-
-- Private keys, passwords, preshared keys, and sensitive credentials: macOS Keychain
-- Imported configuration files are parsed as untrusted input
-- No arbitrary shell execution from VPN profiles
-- Logs must redact secrets
-- Privileged components expose the smallest possible API surface
-- External mode changes must be reversible and tracked by ownership
-
-## 6. macOS 26+ baseline
-
-v0.1 intentionally supports macOS 26 and newer only.
-
-This allows the project to:
-
-- use current Network Extension behavior as the compatibility baseline
-- avoid legacy kernel-extension implementations
-- use current Swift / SwiftUI / System Extension APIs
-- test explicitly against macOS 26 networking behavior rather than carrying historical compatibility branches
-
-The CI/build baseline and exact Xcode/Swift versions will be frozen separately after the first runnable Network Extension spike.
-
-## 7. Deferred features
-
-- Windows
-- per-process rules
-- per-app rules
-- multi-VPN concurrent routing
-- HTTP/SOCKS egress
-- mihomo provider import/export
-- kill switch
-- complete IPv6 parity
-- App Store distribution decision
-- automatic update channel
-
-## 8. v0.1 acceptance criteria
-
-v0.1 is technically viable when all three spikes pass:
-
-1. A WireGuard profile connects and only selected traffic enters the tunnel.
-2. An OpenVPN profile connects and a server-requested full tunnel can be converted to local split policy.
-3. A compatible route-based third-party full-tunnel VPN can be split without a VM, and state survives reconnect/sleep/wake tests.
-
-These are technical viability gates, not final product-release criteria.
+# v0.1 需求规范
+
+状态：Design Draft 1.0；产品默认值已确认，实现待验证。  
+更新：2026-09-23。总入口：[完整方案](plan-v0.1.md)。
+
+## 1. 范围与术语
+
+VPN-Splitter 是本机分流客户端和第三方 VPN 兼容层，不提供 VPN 服务器或订阅。DIRECT 表示当前确认的物理网络路径；VPN 表示本会话选定的隧道。Include 为默认 DIRECT；Bypass 为默认 VPN。DIRECT 不承诺绕过系统代理、企业策略或网络运营方。
+
+统一模型不表示所有后端都有相同能力。以下矩阵是开发目标，不是当前实现状态；现在所有联网能力均尚未验收。
+
+## 2. 能力矩阵
+
+| 能力 | Managed WireGuard | Managed OpenVPN | External |
+| --- | --- | --- | --- |
+| 建立连接/认证 | 应用负责 | 应用负责 | 原客户端负责 |
+| IPv4 Include | 必需，S1 | 必需，S3 | v0.1 不支持 |
+| IPv4 Bypass | 必需，S1 | 必需，S3 | 受限实验性，S0+S4 |
+| IPv4 IP/CIDR | 必需 | 必需 | 仅可验证的 DIRECT 例外 |
+| 精确 DOMAIN | DNS-derived，S2，默认关闭 | 同左，S3 回归 | DNS-derived DIRECT，S4 回归 |
+| DOMAIN-SUFFIX | 仅与显式固定 CIDR 覆盖组合 | 同左 | 不提供后缀自动发现；使用显式 CIDR |
+| Include Split DNS | 必需，指定企业域 | 必需，指定企业域 | 不修改第三方 DNS |
+| Bypass DNS | 默认接受已审核的 VPN DNS；不承诺逐域直连 DNS | 同左 | 保留原客户端 DNS |
+| IPv6 数据分流 | 解析/报告，未实现能力不得启用 | 同左 | 不修改 |
+| REJECT 执行 | 不支持 | 不支持 | 不支持 |
+| 按 App/进程 | 不支持 | 不支持 | 不支持 |
+| 断线系统级防泄漏 | 不保证 | 不保证 | 不保证且受原客户端影响 |
+
+精确 DOMAIN 与受限后缀组合的目标不能在实现中静默删去；失败必须阻断对应发布或通过新 ADR 修改范围。后缀的 CIDR 扩大效应及 DNS-derived 的覆盖限制必须在 UI 中确认。规范见[规则与 DNS](policy-dns-spec.md)。
+
+## 3. 产品要求
+
+| 编号 | 要求 |
+| --- | --- |
+| P-01 | macOS 26.0+、arm64；支持列表按真机记录更新；Intel/Windows 不在首发 |
+| P-02 | 多配置保存、单活动会话；Managed/External 并发叠加不支持 |
+| P-03 | 默认主场景 Include；能等价替代时优先 Managed；External 默认 Bypass |
+| P-04 | 无应用账号、无云同步、无默认遥测；所有配置本地管理 |
+| P-05 | 所有权限操作由用户触发；只读诊断不要求不必要的 root 权限 |
+| P-06 | 无法满足配置不得静默启动部分规则；实验性能力需要明确启用 |
+
+## 4. 协议与导入
+
+### 4.1 WireGuard
+
+| 编号 | 要求 |
+| --- | --- |
+| WG-01 | 导入标准 Interface/Peer 配置，校验 Address、密钥格式、Endpoint、AllowedIPs、DNS、MTU、Keepalive |
+| WG-02 | 多 peer 结构保留；首轮真机覆盖单 peer，多 peer 只有通过路由归属测试后开放；不能悄悄丢弃 peer |
+| WG-03 | 协议 AllowedIPs 与系统分流路由分离；不为增加访问范围而自动扩大 AllowedIPs |
+| WG-04 | DNS、Endpoint、隧道自身地址等必要配置独立验证；路由冲突不静默覆盖 |
+| WG-05 | 连接、断开、重连、统计、错误原因可见；握手状态不等于目标可达 |
+| WG-06 | PostUp/PreUp/PostDown/PreDown 等脚本指令拒绝执行；存在时标记阻断，需用户确认移除后另存副本 |
+
+### 4.2 OpenVPN
+
+| 编号 | 要求 |
+| --- | --- |
+| OV-01 | 目标覆盖 TUN、UDP/TCP、内联及用户明确选择的外部 CA/证书/私钥、用户名密码 |
+| OV-02 | tls-auth、key-direction、tls-crypt 为目标范围；每项按固定核心版本实测 |
+| OV-03 | 服务器证书验证必须保留；不能为兼容性自动关闭身份校验或降低密码配置 |
+| OV-04 | 下发地址、route、redirect-gateway、DNS 分别解析并记录处理结果；最终网络设置由本地 PolicyPlan 决定 |
+| OV-05 | up/down/plugin/脚本和任意文件读写指令不执行；不支持的关键指令阻断导入激活，不静默忽略 |
+| OV-06 | MFA、SSO、浏览器登录、动态挑战、PKCS#11/智能卡、TAP、tls-crypt-v2 等不预先承诺；显示明确兼容性诊断 |
+| OV-07 | 外部引用文件必须经用户授权选择；禁止路径遍历、自动联网下载材料或把凭据放在进程参数中 |
+| OV-08 | 加密私钥、auth-user-pass 文件及非目标认证方式单独标记并测试；未支持时明确阻断，不宣称导入成功即可连接 |
+
+首发具体选项白名单和版本兼容性必须由 S3 产出，不以“兼容 OpenVPN”替代矩阵。
+
+## 5. External
+
+| 编号 | 要求 |
+| --- | --- |
+| EX-01 | 从物理网络服务、接口、路由与 DNS 等观察推导候选；不固定 en0/utunN，不用当前 default 冒充物理网关 |
+| EX-02 | 识别 default 替换、0/1+128/1、Endpoint 保活路径；结果是证据，不是绝对安全证明 |
+| EX-03 | 只添加兼容的 DIRECT 例外；不删除原客户端全局路由，不修改其认证、进程、文件或凭据 |
+| EX-04 | 默认原样保留第三方 DNS；明确提示数据直连不表示 DNS 查询也直连 |
+| EX-05 | 有限重试、冲突检测、路由身份复核；不与 VPN 持续抢路由，不绕过强制系统/企业策略 |
+| EX-06 | 启动时 VPN 已活动且缺少基线，若无法可信恢复物理路径则仅诊断；多候选/叠加隧道未消歧不修改 |
+| EX-07 | 只撤销本会话可安全认领的修改；借用既有路由不获得删除权；歧义保留并报告 |
+| EX-08 | Wi-Fi/Ethernet 切换、DHCP、重连、睡眠、崩溃后重新发现，不盲目重放旧网关 |
+
+## 6. 规则、DNS 与失败行为
+
+| 编号 | 要求 |
+| --- | --- |
+| RULE-01 | IP-CIDR、DOMAIN、受限 DOMAIN-SUFFIX、MATCH；内部使用类型化模型和稳定规则 ID |
+| RULE-02 | first-match 语义；CIDR 编译须等价，不允许系统最长前缀改变用户顺序含义 |
+| RULE-03 | 相同 IP 的相反域名动作、与 CIDR 的不可表达冲突等必须被检测；已知冲突拒绝启用 |
+| RULE-04 | REJECT、IP-CIDR6 可解析保存为禁用草稿；后端不支持时启用即报错 |
+| RULE-05 | 每次应用有 generation、网络 epoch、plan 摘要和逐规则编译解释 |
+| DNS-01 | Managed Include 使用明确企业域和 VPN DNS；其他域保留系统解析选择；匹配不等于数据选路 |
+| DNS-02 | VPN DNS 地址必须经预期路径可达，避免端点解析和 DNS 启动依赖环 |
+| DNS-03 | Managed Bypass 单独验证默认路由对 resolver 的影响；默认使用审核后的 VPN DNS，不保证逐域直连 DNS |
+| DNS-04 | 私有域解析失败不由本应用自动转公共 resolver；系统/第三方/加密 DNS 行为不宣称可全面控制 |
+| DNS-05 | DOMAIN 显示解析来源、时间、TTL/有效期、IPv4/IPv6 覆盖、CNAME 和共享地址风险 |
+| FAIL-01 | 不主动把 VPN 规则改成 DIRECT；隧道消失后系统可能直连，因此无 Kill Switch 保证 |
+| FAIL-02 | IPv6 未管理时始终标注范围；不宣称“所有流量已分流”；要求全覆盖或 fail-closed 的策略拒绝激活 |
+| FAIL-03 | 初次应用失败清理自有更改；更新失败仅在旧计划仍有效时继续旧计划，否则停止本会话并警告 |
+| FAIL-04 | 已有 TCP/QUIC 会话不承诺无缝迁移；应用规则后以新建连接验证 |
+
+## 7. UI、状态与可诊断性
+
+| 编号 | 要求 |
+| --- | --- |
+| UX-01 | 配置页、规则页、DNS 页、连接详情、诊断与设置；菜单栏显示模式及覆盖限制 |
+| UX-02 | 导入预览列出接受、忽略的非关键项、阻断项；只保存经确认的安全副本 |
+| UX-03 | 应用前展示实际路由、DNS、基础设施例外、可能影响的共享 IP/CIDR 与权限 |
+| UX-04 | 状态区分未连接、授权中、连接中、策略应用中、运行、部分覆盖、协调中、失败、恢复需处理 |
+| UX-05 | “运行”只说明本次已验证范围；实验性 DOMAIN/IPv6 缺口不能被一个绿色连接图标掩盖 |
+| UX-06 | 关闭窗口继续运行；显式退出默认结束本应用会话；External 不断开原 VPN |
+| DIAG-01 | 解释 hostname/IP 的规则结果、resolver、地址、系统路由与实际探测，不能互相替代 |
+| DIAG-02 | 采集网络 epoch、物理/隧道路径、全局路由线索、版本、能力、协调记录、脱敏错误 |
+| DIAG-03 | 默认不记录浏览历史和报文；导出前脱敏预览；凭据绝不进入日志或公开仓库 |
+
+## 8. 安全、可靠性与发行
+
+SEC-01：密钥、密码、PSK 等由 Keychain 保存，扩展跨进程访问须最小权限。  
+SEC-02：Helper 只允许结构化路由操作；校验调用方身份、用户授权及参数；禁止通用 shell。  
+SEC-03：持久化操作日志不保存凭据；支持崩溃恢复、权限拒绝、版本不匹配和卸载。  
+REL-01：会话状态以实际扩展/Helper 状态为准；持久化 connected 布尔值不能视作已连接。  
+REL-02：事件需合并、去重、取消陈旧异步结果，避免重试风暴。  
+DIST-01：Release 在正常安全设置、SIP 开启、无开发绕过的 Mac 上验证 Developer ID、公证与授权。  
+DIST-02：发行物含许可证、第三方说明、版本矩阵、已知限制与卸载说明。
+
+需求必须关联[测试计划](test-plan.md)；技术 Spike 通过不是最终产品验收通过。
+
+## 9. 非目标
+
+Windows、Intel、App Store、自动更新、按 App/进程/URL 分流、多 VPN 叠加、代理出口、mihomo 订阅兼容、任意公网后缀动态发现、Fake-IP、透明代理、系统级 Kill Switch、完整 IPv6、VPN 服务售卖、破解官方客户端、绕过 MDM/企业安全策略均不在 v0.1。
