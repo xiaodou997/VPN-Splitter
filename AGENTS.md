@@ -1,6 +1,6 @@
 # VPN-Splitter 开发约定
 
-本仓库当前是设计/技术验证阶段。先读 docs/plan-v0.1.md、docs/roadmap.md 和 docs/adr/ADR-001-v0.1-baseline.md；不要把文档目标当已实现事实。
+本仓库当前是设计/技术验证阶段。先读 docs/plan-v0.1.md、docs/roadmap.md 和 docs/adr/ADR-001-v0.1-baseline.md；不要把文档目标当已实现事实。S0 当前证据与状态见 docs/evidence/s0-baseline.md。
 
 ## 已确定边界
 
@@ -12,7 +12,9 @@ macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、
 
 按 S0–S5 的门槛推进。每个 PR 引用任务 ID、需求 ID、测试 ID，列明实际执行和未执行测试、权限影响、失败/恢复路径。纯逻辑测试不能替代签名/真机联网测试。
 
-目前不存在构建脚本或 Xcode 工程；不得声称执行了不存在的命令。创建后固定工具链与依赖 revision，并更新实际构建说明。新架构、依赖、默认行为或保证等级变化先更新 ADR。
+目前有 tools/s0/ 只读开发采集工具和 tests/s0/ 离线测试，仍没有产品构建脚本或 Xcode 工程；不得声称执行了不存在的命令。创建后固定工具链与依赖 revision，并更新实际构建说明。新架构、依赖、默认行为或保证等级变化先更新 ADR。
+
+离线测试命令：`/bin/bash -n tools/s0/collect-network.sh` 和 `python3 -m unittest discover -s tests/s0 -v`。Python 仅为测试依赖，不是正式产品或 Mac 采集运行依赖。工具说明见 tools/s0/README.md。
 
 ## 代码与系统边界
 
@@ -22,7 +24,7 @@ Managed 通过 Network Extension，不用 shell 启动第二个独立隧道。He
 
 ## 安全与证据
 
-不得提交真实 .conf/.ovpn、私钥、密码、令牌、签名私钥或未脱敏网络信息。使用合成夹具；诊断在所有出口脱敏。执行会改变宿主机路由/DNS/系统扩展的测试前必须确认授权、隔离环境和恢复办法，不在普通共享 CI/办公网络盲目运行。
+不得提交真实 .conf/.ovpn、私钥、密码、令牌、签名私钥或未脱敏网络信息。使用合成夹具；产品诊断在所有出口脱敏。S0 开发采集的原始私有资料仅留在 .local/s0/，并非已脱敏日志；只分享固定字段摘要或经过人工审查的证据，不能上传整个目录。执行会改变宿主机路由/DNS/系统扩展的测试前必须确认授权、隔离环境和恢复办法，不在普通共享 CI/办公网络盲目运行。
 
 第三方代码、测试和资源复制前检查精确许可；根 LICENSE 不重新许可依赖。不要 Fork 整个参考 App 代替按问题验证。
 

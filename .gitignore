@@ -1,0 +1,25 @@
+# Private S0 snapshots and local credentials must never enter Git.
+.local/
+vpn-before.txt
+vpn-after.txt
+vpn-diff.txt
+*.ovpn
+*.conf
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.pcap
+*.pcapng
+*.log
+.env
+.env.*
+
+# Local build/test artifacts
+.DS_Store
+.build/
+DerivedData/
+__pycache__/
+*.py[cod]
