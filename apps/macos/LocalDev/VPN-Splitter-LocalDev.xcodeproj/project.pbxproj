@@ -1,0 +1,165 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 56;
+    objects = {
+        A10000000000000000000001 = {
+            isa = PBXProject;
+            attributes = { BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2600; };
+            buildConfigurationList = A10000000000000000000002;
+            compatibilityVersion = "Xcode 14.0";
+            developmentRegion = en;
+            hasScannedForEncodings = 0;
+            knownRegions = (en, Base, "zh-Hans");
+            mainGroup = A10000000000000000000003;
+            productRefGroup = A10000000000000000000004;
+            projectDirPath = "";
+            projectRoot = "";
+            packageReferences = (A10000000000000000000020);
+            targets = (A10000000000000000000005);
+        };
+        A10000000000000000000002 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (A10000000000000000000010, A10000000000000000000011);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Debug;
+        };
+        A10000000000000000000003 = {
+            isa = PBXGroup;
+            children = (A10000000000000000000006, A10000000000000000000004);
+            sourceTree = "<group>";
+        };
+        A10000000000000000000004 = {
+            isa = PBXGroup;
+            children = (A10000000000000000000007);
+            name = Products;
+            sourceTree = "<group>";
+        };
+        A10000000000000000000005 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A10000000000000000000008;
+            buildPhases = (A10000000000000000000009, A1000000000000000000000A);
+            buildRules = ();
+            dependencies = ();
+            name = "VPN-Splitter-LocalDev";
+            packageProductDependencies = (A10000000000000000000021);
+            productName = "VPN-Splitter-LocalDev";
+            productReference = A10000000000000000000007;
+            productType = "com.apple.product-type.application";
+        };
+        A10000000000000000000006 = {
+            isa = PBXFileReference;
+            lastKnownFileType = sourcecode.swift;
+            path = LocalDevApp.swift;
+            sourceTree = "<group>";
+        };
+        A10000000000000000000007 = {
+            isa = PBXFileReference;
+            explicitFileType = wrapper.application;
+            includeInIndex = 0;
+            path = "VPN-Splitter-LocalDev.app";
+            sourceTree = BUILT_PRODUCTS_DIR;
+        };
+        A10000000000000000000008 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (A10000000000000000000012, A10000000000000000000013);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Debug;
+        };
+        A10000000000000000000009 = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (A1000000000000000000000B);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+        A1000000000000000000000A = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = (A10000000000000000000022);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+        A1000000000000000000000B = { isa = PBXBuildFile; fileRef = A10000000000000000000006; };
+        A10000000000000000000010 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ARCHS = arm64;
+                SDKROOT = macosx;
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                SWIFT_VERSION = 6.0;
+                SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+                SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+                CLANG_ENABLE_MODULES = YES;
+            };
+            name = Debug;
+        };
+        A10000000000000000000011 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                ARCHS = arm64;
+                SDKROOT = macosx;
+                MACOSX_DEPLOYMENT_TARGET = 26.0;
+                SWIFT_VERSION = 6.0;
+                SWIFT_COMPILATION_MODE = wholemodule;
+                SWIFT_OPTIMIZATION_LEVEL = "-O";
+                CLANG_ENABLE_MODULES = YES;
+            };
+            name = Release;
+        };
+        A10000000000000000000012 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_IDENTITY = "-";
+                CODE_SIGN_STYLE = Manual;
+                CODE_SIGN_ENTITLEMENTS = "";
+                CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+                DEVELOPMENT_TEAM = "";
+                ENABLE_APP_SANDBOX = NO;
+                ENABLE_HARDENED_RUNTIME = NO;
+                GENERATE_INFOPLIST_FILE = YES;
+                INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+                INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+                INFOPLIST_KEY_NSHighResolutionCapable = YES;
+                PRODUCT_BUNDLE_IDENTIFIER = "com.vpnsplitter.localdev";
+                PRODUCT_NAME = "VPN-Splitter-LocalDev";
+                MARKETING_VERSION = 0.1.0;
+                CURRENT_PROJECT_VERSION = 1;
+                SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+            };
+            name = Debug;
+        };
+        A10000000000000000000013 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                CODE_SIGN_IDENTITY = "-";
+                CODE_SIGN_STYLE = Manual;
+                CODE_SIGN_ENTITLEMENTS = "";
+                CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+                DEVELOPMENT_TEAM = "";
+                ENABLE_APP_SANDBOX = NO;
+                ENABLE_HARDENED_RUNTIME = NO;
+                GENERATE_INFOPLIST_FILE = YES;
+                INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+                INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+                INFOPLIST_KEY_NSHighResolutionCapable = YES;
+                PRODUCT_BUNDLE_IDENTIFIER = "com.vpnsplitter.localdev";
+                PRODUCT_NAME = "VPN-Splitter-LocalDev";
+                MARKETING_VERSION = 0.1.0;
+                CURRENT_PROJECT_VERSION = 1;
+                SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+            };
+            name = Release;
+        };
+        A10000000000000000000020 = {
+            isa = XCLocalSwiftPackageReference;
+            relativePath = ../../../Packages/AppCore;
+        };
+        A10000000000000000000021 = {
+            isa = XCSwiftPackageProductDependency;
+            package = A10000000000000000000020;
+            productName = AppCore;
+        };
+        A10000000000000000000022 = { isa = PBXBuildFile; productRef = A10000000000000000000021; };
+    };
+    rootObject = A10000000000000000000001;
+}

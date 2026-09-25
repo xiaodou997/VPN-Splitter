@@ -2,18 +2,19 @@
 
 面向 macOS 的 VPN 分流客户端与第三方 VPN 兼容层，把“连接 VPN”与“哪些流量走 VPN”分离。
 
-**开发入口统一为 `main`。当前不是可用 VPN 发行版。** S0 已有一个用户实测的 IPv4 DIRECT/VPN 切换及恢复样本；PolicyCore 与 T-P10 有纯逻辑实现；S1-01 最小 App/System Extension 已入库，等待真机编译、签名和加载。合并不等于验收通过。
+**开发入口统一为 `main`。当前不是可用 VPN 发行版。** S0 已有一个用户实测的 IPv4 DIRECT/VPN 切换及恢复样本；PolicyCore 与 T-P10 有纯逻辑实现；S1-01 的 preflight / unsigned 已获用户报告成功，开发签名与扩展加载暂停。现在推进独立 LocalDev 界面，合并不等于 Mac 构建或 VPN 验收通过。
 
 ## 现在从这里开始
 
-**[S1-01 真机构建与签名操作](docs/s1-01-build.md)**
+**[LocalDev 本地开发版](docs/localdev.md)**（macOS 26+ / arm64、完整 Xcode 与 SDK 26+）
 
 ```sh
-/bin/bash tools/s1/build.sh preflight
-/bin/bash tools/s1/build.sh unsigned
+/bin/bash tools/localdev/build.sh run
 ```
 
-先在 macOS 26+ / arm64、完整 Xcode 与 macOS SDK 26+ 上执行。两条命令分别成功后再继续，均不安装 App、不激活扩展、不改路由/DNS。源码无第三方构建依赖。后续开发签名、Applications 安装、用户批准、Provider 日志和清理均见上面的文档。没有协议后端的 Provider 有意拒绝连接，不能拿“失败”冒充已进入 Provider，须匹配专用日志。
+独立普通 App，使用 ad-hoc 本地签名，不需要 Team ID / VPN profile，不嵌入或激活 Packet Tunnel。提供配置草稿、规则编辑、真实 PolicyCore 意图预览与明确标注的模拟状态；没有 `.conf` / `.ovpn` 导入和真实连接。当前 Mac SDK 构建、签名检查和开窗仍待本机执行，见[证据](docs/evidence/localdev-01.md)。
+
+已通过的 S1 `preflight` / `unsigned` 不要求重跑；原 unsigned 产物仍不可安装。第一次真实 Managed 隧道联调前再按 [S1-01 签名操作](docs/s1-01-build.md) 恢复开发签名；Developer ID、公证和 DMG 更晚处理。调序依据见 [ADR-007](docs/adr/ADR-007-localdev-before-signing.md)。
 
 核心可独立测试，不需要 VPN 或签名账号：
 

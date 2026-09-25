@@ -6,6 +6,12 @@
 
 用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
+## 当前优先级：LocalDev
+
+用户已确认暂停开发签名，先做无网络副作用的配置/规则/诊断界面。先读 docs/adr/ADR-007-localdev-before-signing.md 和 docs/localdev.md；它们调整开发调度，不关闭 S0–S5 真实技术门槛。已有 S1 preflight / unsigned 为 USER_REPORTED 成功，不要求重做。新入口为 /bin/bash tools/localdev/build.sh run；现有 unsigned 产物仍不可安装。
+
+LocalDev 独立工程在 apps/macos/LocalDev/，仅 ad-hoc 签名、无 NE entitlement/扩展；AppCore 复用 PolicyCore。使用 swift test --package-path Packages/AppCore -Xswiftc -warnings-as-errors，并以 -c release 重跑；合同测试 python3 -m unittest discover -s tests/localdev -v。当前仅策略草稿，不接受真实密钥，不把模拟状态或规划能力预设报告为真实连接/探测。新增导入前完成凭据边界，不向草稿 JSON 添加原始配置或凭据。第一轮真实隧道联调前恢复开发签名。
+
 ## 已确定边界
 
 macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、自有代码 MIT。主场景 Include；External 首发仅经验证的 Bypass。一次一个会话，不自动叠加隧道。
