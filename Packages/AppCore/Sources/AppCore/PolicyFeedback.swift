@@ -40,6 +40,7 @@ public enum PolicyFeedback {
     }
 
     public static func message(_ error: any Error) -> String {
+        if let error = error as? RuleBatchError { return error.message }
         if let error = error as? CredentialError { return error.message }
         if let error = error as? WGImportError { return error.message }
         if let error = error as? DraftEditError {

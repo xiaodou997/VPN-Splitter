@@ -191,6 +191,11 @@ final class LocalDevModel: ObservableObject {
         catch { message = PolicyFeedback.message(error) }
     }
 
+    func openBatchRules() {
+        guard canAct, let profile = session.profile else { return }
+        begin(.batch(profile))
+    }
+
     private func begin(_ value: DraftEdit) {
         do {
             try editor.begin(value)
@@ -327,7 +332,7 @@ private struct LocalDevRoot: View {
             HStack {
                 Label("本地开发模式：不接管网络", systemImage: "wrench.and.screwdriver").bold()
                 Spacer()
-                Text("LD-02B · 真实 VPN 未接入").foregroundStyle(.secondary)
+                Text("LD-02C · 真实 VPN 未接入").foregroundStyle(.secondary)
             }.padding().background(.quaternary)
             if !model.message.isEmpty {
                 Text(model.message).textSelection(.enabled)
@@ -344,7 +349,10 @@ private struct LocalDevRoot: View {
                     Button("重试清理") { model.retryCredentialCleanup() }.disabled(!model.canAct)
                 }.padding().background(.quaternary)
             }
-            NavigationSplitView {
+            // This is a workspace, not a navigation stack. A nested navigation
+            // toolbar can put a glass layer over the fixed profile header on macOS 26.
+            // Keep the banner and profile header in normal layout, with no overlay.
+            HSplitView {
                 VStack(alignment: .leading) {
                     Text("我的策略").font(.headline).padding(.horizontal)
                     List(selection: Binding(get: { model.session.selectedID }, set: { model.select($0) })) {
@@ -361,14 +369,16 @@ private struct LocalDevRoot: View {
                     }.padding()
                 }
                 .disabled(!model.canAct)
-                .navigationSplitViewColumnWidth(min: 190, ideal: 210)
-            } detail: {
-                if let profile = model.session.profile {
-                    ProfilePane(model: model, profile: profile).id(profile.id).disabled(!model.canAct)
-                } else {
-                    ContentUnavailableView("新建一份分流策略", systemImage: "list.bullet.rectangle",
-                        description: Text("可导入 WireGuard 并选择凭据保存方式，或新建空白策略。本版不连接 VPN。"))
+                .frame(minWidth: 190, idealWidth: 220, maxWidth: 300, maxHeight: .infinity, alignment: .topLeading)
+                Group {
+                    if let profile = model.session.profile {
+                        ProfilePane(model: model, profile: profile).id(profile.id).disabled(!model.canAct)
+                    } else {
+                        ContentUnavailableView("新建一份分流策略", systemImage: "list.bullet.rectangle",
+                            description: Text("可导入 WireGuard 并选择凭据保存方式，或新建空白策略。本版不连接 VPN。"))
+                    }
                 }
+                .frame(minWidth: 570, maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .sheet(isPresented: Binding(get: { model.editor.edit != nil }, set: { presented in
@@ -389,6 +399,7 @@ private struct ProfilePane: View {
     @ObservedObject var model: LocalDevModel
     let profile: ProfileDraft
     @State private var tab = 0
+    @State private var searchQuery = ""
     @State private var target = "198.51.100.7"
     @State private var explanation = ""
     @State private var simulateFailure = false
@@ -402,11 +413,12 @@ private struct ProfilePane: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(profile.name).font(.title2).bold()
+                    Text(profile.name).font(.title2).bold().lineLimit(2)
+                        .accessibilityIdentifier("profile-title")
                     Text(PolicyFeedback.mode(profile.defaultAction)).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("设置") { model.openSettings() }
+                Button("设置") { model.openSettings() }.accessibilityIdentifier("profile-settings")
                 Menu {
                     if profile.backend == .wireGuard {
                         Button("重新导入 WireGuard .conf") { model.chooseWireGuard(replacing: profile.id) }
@@ -421,6 +433,8 @@ private struct ProfilePane: View {
                     Button("删除策略", role: .destructive) { deleteRuleID = nil; confirmDelete = true }
                 } label: { Image(systemName: "ellipsis") }.help("策略操作")
             }
+            .fixedSize(horizontal: false, vertical: true)
+            .layoutPriority(1)
             if let metadata = profile.wireGuard {
                 DisclosureGroup(profile.credential == nil ? "WireGuard · 仅结构，未关联凭据" : "WireGuard · 已关联 Keychain（非认证结果）", isExpanded: $showWireGuard) {
                     ScrollView {
@@ -478,19 +492,33 @@ private struct ProfilePane: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Button("添加规则", systemImage: "plus") { model.openRule() }
+                Button("批量添加") { model.openBatchRules() }
                 Spacer()
                 Button("检查规则") { model.compile(); tab = 1 }.buttonStyle(.borderedProminent)
             }
             Text("从上到下匹配，第一条命中后停止。开关和排序立即保存；编辑在独立窗口中保存。")
                 .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                TextField("搜索目标、动作或启用状态", text: $searchQuery)
+                    .textFieldStyle(.roundedBorder).accessibilityIdentifier("rule-search")
+                if !searchQuery.isEmpty { Button("清除") { searchQuery = "" } }
+                Text("\(visibleRuleIndices.count) / \(profile.rules.count) 条").font(.caption)
+            }
+            if !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Text("搜索仅筛选显示，检查仍使用全部规则。请清除搜索后调整顺序。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if profile.rules.isEmpty {
                 ContentUnavailableView("还没有规则", systemImage: "list.bullet",
                     description: Text("添加一个 IP 地址或网段，选择走 VPN 或直连。"))
+            } else if visibleRuleIndices.isEmpty {
+                ContentUnavailableView("没有匹配的规则", systemImage: "magnifyingglass",
+                    description: Text("规则未被删除；清除搜索可显示全部规则。"))
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(profile.rules.enumerated()), id: \.element.id) { index, item in
-                            ruleRow(item, index: index)
+                        ForEach(visibleRuleIndices, id: \.self) { index in
+                            ruleRow(profile.rules[index], index: index)
                             Divider()
                         }
                     }
@@ -498,6 +526,9 @@ private struct ProfilePane: View {
             }
         }.padding()
     }
+
+    private var visibleRuleIndices: [Int] { RuleSearch.indices(in: profile.rules, query: searchQuery) }
+    private var isSearching: Bool { !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
     private func ruleRow(_ item: DraftRule, index: Int) -> some View {
         HStack(alignment: .top) {
@@ -525,9 +556,9 @@ private struct ProfilePane: View {
             Spacer()
             Button("编辑") { model.openRule(item.id) }
             Menu {
-                Button("上移") { model.changeRules { $0.moveRule(id: item.id, offset: -1) } }.disabled(index == 0)
+                Button("上移") { model.changeRules { $0.moveRule(id: item.id, offset: -1) } }.disabled(index == 0 || isSearching)
                 Button("下移") { model.changeRules { $0.moveRule(id: item.id, offset: 1) } }
-                    .disabled(index + 1 == profile.rules.count)
+                    .disabled(index + 1 == profile.rules.count || isSearching)
                 Divider()
                 Button("删除规则", role: .destructive) { deleteRuleID = item.id; confirmDelete = true }
             } label: { Image(systemName: "ellipsis") }.help("排序或删除规则")
@@ -608,10 +639,48 @@ private struct EditorPane: View {
                 set: { value in model.updateEditor(id: edit.id) { $0[keyPath: key] = value } })
     }
 
+    @ViewBuilder
+    private func batchFields(_ edit: DraftEdit) -> some View {
+        Text("每行一个 IPv4 地址或网段；支持空行和 # 注释。全部使用下面选择的动作。")
+            .font(.callout)
+        TextEditor(text: field(\.batchText, edit: edit))
+            .font(.system(.body, design: .monospaced)).frame(height: 130)
+            .accessibilityLabel("批量 IP 或网段，一行一个")
+        Picker("这些目标的流量", selection: field(\.batchAction, edit: edit)) {
+            Text("走 VPN").tag(DraftAction.vpn)
+            Text("直连").tag(DraftAction.direct)
+        }
+        switch Result(catching: { try IPv4RuleBatch.parse(edit.batchText) }) {
+        case .success(let batch):
+            Text("将追加 \(batch.targets.count) 条，保存后共 \(edit.baseline.rules.count + batch.targets.count) 条；不替换已有规则或改变默认出口。")
+                .font(.caption)
+            if edit.baseline.rules.count + batch.targets.count > 1000 {
+                Text(RuleBatchError.ruleLimit.message).font(.caption)
+            }
+            if batch.normalizedCount > 0 {
+                Text("\(batch.normalizedCount) 项已归一化为网络地址，可能覆盖整个网段；保存前请展开核对。")
+                    .font(.caption).bold()
+            }
+            if batch.duplicateCount > 0 {
+                Text("本批有 \(batch.duplicateCount) 项重复目标；保留原顺序，不自动去重。")
+                    .font(.caption)
+            }
+            DisclosureGroup("查看将保存的目标（规范化后）") {
+                ScrollView {
+                    Text(batch.targets.joined(separator: "\n"))
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(height: 80)
+            }
+        case .failure(let error):
+            Text(PolicyFeedback.message(error)).font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         if let edit = model.editor.edit {
             VStack(alignment: .leading, spacing: 16) {
-                Text(edit.kind == .settings ? "策略设置" : (edit.isNewRule ? "添加规则" : "编辑规则"))
+                Text(edit.kind == .settings ? "策略设置" : (edit.kind == .batch ? "批量添加规则" : (edit.isNewRule ? "添加规则" : "编辑规则")))
                     .font(.title2).bold()
                 if edit.kind == .settings {
                     TextField("策略名称", text: field(\.name, edit: edit))
@@ -633,6 +702,8 @@ private struct EditorPane: View {
                         Text("只影响规则检查，不表示 VPN 后端已经实现。External 仅支持第二种分流方式。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                } else if edit.kind == .batch {
+                    batchFields(edit)
                 } else {
                     TextField("目标 IP / 网段", text: field(\.rule.value, edit: edit))
                     Picker("目标流量", selection: field(\.rule.action, edit: edit)) {
@@ -654,14 +725,14 @@ private struct EditorPane: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text("保存只更新本地草稿，不接管网络。未完成的规则可以保存，但必须修正或禁用后才能通过检查。不要填写密钥或密码。")
+                Text(edit.kind == .batch ? "保存会一次追加全部有效规则；含格式错误时整批不保存。只更新本地草稿，不接管网络。不要填写密钥或密码。" : "保存只更新本地草稿，不接管网络。未完成的规则可以保存，但必须修正或禁用后才能通过检查。不要填写密钥或密码。")
                     .font(.caption).foregroundStyle(.secondary)
                 if !model.message.isEmpty { Text(model.message).textSelection(.enabled) }
                 HStack {
                     Text(edit.hasChanges ? "有未保存的修改" : "尚未修改").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("取消") { if !model.closeEditor() { confirmDiscard = true } }.keyboardShortcut(.cancelAction)
-                    Button("保存草稿") { _ = model.saveEditor() }.keyboardShortcut(.defaultAction)
+                    Button(edit.kind == .batch ? "确认追加规则" : "保存草稿") { _ = model.saveEditor() }.keyboardShortcut(.defaultAction)
                 }
             }
             .padding(24).frame(width: 540)

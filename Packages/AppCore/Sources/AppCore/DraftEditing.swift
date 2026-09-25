@@ -10,7 +10,7 @@ public enum DraftEditError: String, Error, Sendable {
 /// An in-memory transaction. Never persisted; no partial changes reach the workspace.
 /// The complete profile baseline intentionally makes concurrent edits conservative.
 public struct DraftEdit: Identifiable, Equatable, Sendable {
-    public enum Kind: Sendable { case settings, rule }
+    public enum Kind: Sendable { case settings, rule, batch }
     public let id = UUID()
     public let kind: Kind
     public let baseline: ProfileDraft
@@ -20,10 +20,13 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
     public var backend: DraftBackend
     public var defaultAction: DraftAction
     public var rule: DraftRule
+    public var batchText = ""
+    public var batchAction: DraftAction
 
     private init(profile: ProfileDraft, kind: Kind, rule: DraftRule, isNewRule: Bool) {
         baseline = profile; self.kind = kind; initialRule = rule
         self.rule = rule; self.isNewRule = isNewRule
+        batchAction = profile.defaultAction == .vpn ? .direct : .vpn
         name = profile.name; backend = profile.backend; defaultAction = profile.defaultAction
     }
 
@@ -40,11 +43,16 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
         return Self(profile: profile, kind: .rule, rule: rule, isNewRule: true)
     }
 
+    public static func batch(_ profile: ProfileDraft) -> Self {
+        Self(profile: profile, kind: .batch, rule: DraftRule(), isNewRule: false)
+    }
+
     public var hasChanges: Bool {
         switch kind {
         case .settings:
             name != baseline.name || backend != baseline.backend || defaultAction != baseline.defaultAction
         case .rule: rule != initialRule
+        case .batch: !batchText.isEmpty || batchAction != (baseline.defaultAction == .vpn ? .direct : .vpn)
         }
     }
 
@@ -61,6 +69,9 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
             next.profiles[index].name = name
             next.profiles[index].backend = backend
             next.profiles[index].defaultAction = defaultAction
+        case .batch:
+            let batch = try IPv4RuleBatch.parse(batchText)
+            next.profiles[index].rules = try batch.appending(to: baseline.rules, action: batchAction)
         case .rule:
             if isNewRule { next.profiles[index].rules.append(rule) }
             else {
