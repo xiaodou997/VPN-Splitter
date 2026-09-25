@@ -12,11 +12,11 @@ macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、
 
 按 S0–S5 的门槛推进。每个 PR 引用任务 ID、需求 ID、测试 ID，列明实际执行和未执行测试、权限影响、失败/恢复路径。纯逻辑测试不能替代签名/真机联网测试。
 
-目前不存在构建脚本或 Xcode 工程；不得声称执行了不存在的命令。创建后固定工具链与依赖 revision，并更新实际构建说明。新架构、依赖、默认行为或保证等级变化先更新 ADR。
+目前已有 Packages/PolicyCore/ 纯 Swift 包，仍没有产品 Xcode 工程或签名构建。使用 `swift test --package-path Packages/PolicyCore -Xswiftc -warnings-as-errors`，并以 `-c release` 重跑优化构建；构建及范围见包内 README 和 docs/evidence/s1-policycore-tests.md。S0 工具与用户网络证据仍在独立 PR #2。新架构、依赖、默认行为或保证等级变化先更新 ADR。
 
 ## 代码与系统边界
 
-PolicyCore 不依赖 UI、Network Extension 或 root API。规则用类型化模型和确定性编译，必须保持 first-match 等价。WireGuard 协议 AllowedIPs 与系统路由分离。
+PolicyCore 不依赖 UI、Network Extension 或 root API。规则用类型化模型和确定性编译，必须保持 first-match 等价。WireGuard 协议 AllowedIPs 与系统路由分离。IPv4PolicyPlan 仅是首个地址意图片段，基础设施/peer 纯逻辑校验使用 IPv4ConstrainedPolicyCompiler；拓扑完整性、DNS/underlay/真实可达性尚未验证，不可直接安装；调用方不得把能力 presets 当实际探测结果。
 
 Managed 通过 Network Extension，不用 shell 启动第二个独立隧道。Helper 仅接受经过身份/参数/epoch 验证的结构化路由操作，不接受通用命令。只撤销可安全认领的修改，歧义不删，不恢复整个旧路由表。
 
