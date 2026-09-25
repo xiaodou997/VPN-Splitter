@@ -1,0 +1,34 @@
+{
+  "schema": "wireguard-reference-v1",
+  "status": "REFERENCE_AUDIT_ONLY_NOT_A_BUILD_DEPENDENCY",
+  "observed_on": "2026-09-25",
+  "repository": "https://git.zx2c4.com/wireguard-apple",
+  "official_mirror": "https://github.com/WireGuard/wireguard-apple",
+  "revision": "2fec12a6e1f6e3460b6ee483aa00ad29cddadab1",
+  "revision_date": "2023-02-15",
+  "license": "MIT",
+  "source_blobs": {
+    "COPYING": "af11a81081ea159a69b1eda2b1b4199fc7d88c5f",
+    "Package.swift": "5d15a1b0dd840942a03219034e17c8b5a3d2db38",
+    "Sources/WireGuardKit/PacketTunnelSettingsGenerator.swift": "3658956c6a036ba97b493dc694c756c4eee5b121",
+    "Sources/WireGuardKit/WireGuardAdapter.swift": "f7be19b15f5cbe39fd0e6496cdf0b2d426d83b6b",
+    "Sources/WireGuardKitGo/go.mod": "789358e64fb8c4c5e7c0c5cb40bc37ffaf9dd59c"
+  },
+  "recorded_go_dependencies_not_approved_for_shipping": {
+    "golang.org/x/sys": "v0.5.0",
+    "golang.zx2c4.com/wireguard": "v0.0.0-20230209153558-1e2c3e5a3c14",
+    "golang.org/x/crypto": "v0.6.0",
+    "golang.org/x/net": "v0.6.0",
+    "golang.zx2c4.com/wintun": "v0.0.0-20230126152724-0fa3db229ce2"
+  },
+  "open_gates": [
+    "modern_go_and_macos26_build_and_dependency_license_security_review",
+    "required_policy_settings_hook_on_start_update_and_restart_no_fallback",
+    "handle_setNetworkSettings_timeout_without_proceeding_as_success",
+    "check_wgSetConfig_return_value_and_reconcile_partial_update",
+    "verify_utun_descriptor_ownership_in_system_extension",
+    "redact_upstream_endpoint_and_runtime_configuration_logging",
+    "extension_signature_authorization_and_secret_delivery",
+    "native_route_dns_observation_and_safe_stop"
+  ]
+}

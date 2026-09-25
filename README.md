@@ -4,6 +4,12 @@
 
 **开发入口统一为 `main`，当前为 LD-03B LocalDev，不是可用 VPN 发行版。** 本轮统一模拟连接、取消/停止、超时、失败重试与配置失效流程；保留 WireGuard 参数编辑、批量规则、搜索及 Keychain 恢复。最新回归和未验项见 [LD-03B 证据](docs/evidence/localdev-03b-lifecycle.md)。用户此前只确认 LD-02C 显示正常，不能据此认定新版 GUI 或真实 Keychain 已验收；不需要历史补丁或 ZIP。
 
+## WireGuard 后端接入准备：WG-INT-01
+
+新增 [ManagedSettings](Packages/ManagedSettings/README.md)：把 PolicyCore 约束计划转换为独立的 IPv4 设置草稿，并在 macOS 构造真实 NE 设置对象用于检查。系统路由不再从协议 AllowedIPs 推导；完整输入和上下文必须一致。没有连接 Provider、下载/链接协议核心或修改网络，LocalDev 界面仍为 LD-03B。
+
+新检查入口是 `/bin/bash tools/managed/test.sh`；macOS 会额外执行原生对象测试，无需开发签名。固定的上游 revision 仅用于源码审查，不是发行依赖锁。范围、尚未完成的接入问题及验证见 [接入指南](docs/managed-wireguard.md)、[ADR-013](docs/adr/ADR-013-managed-settings-preparation.md) 和 [WG-INT-01 证据](docs/evidence/managed-settings-01.md)。
+
 ## 现在从这里开始
 
 先保存并完整退出旧 LocalDev，在仓库根目录执行（macOS 26+ / arm64、完整 Xcode 与 SDK 26+）：
