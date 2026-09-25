@@ -1,0 +1,6 @@
+#include "Base.xcconfig"
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+SWIFT_COMPILATION_MODE = singlefile
+DEBUG_INFORMATION_FORMAT = dwarf

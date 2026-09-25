@@ -1,0 +1,8 @@
+// Copy to Signing.local.xcconfig (ignored by Git). Never add private keys or passwords.
+VPN_DEVELOPMENT_TEAM = YOURTEAMID
+// Optional: change both IDs through this one parent ID before registering profiles.
+// VPN_APP_BUNDLE_ID = your.registered.parent.id
+// For the DeveloperID configuration only; two separate Developer ID profiles:
+VPN_APP_PROFILE_SPECIFIER =
+VPN_EXTENSION_PROFILE_SPECIFIER =
+VPN_DEVELOPER_ID_IDENTITY = Developer ID Application

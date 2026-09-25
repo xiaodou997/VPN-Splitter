@@ -16,7 +16,9 @@ macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、
 
 按 S0–S5 门槛推进，允许无网络副作用的纯逻辑并行。每个提交引用任务/需求/测试编号，列出权限影响、失败/恢复路径、已执行与未执行测试。新架构、依赖或保证变更先更新 ADR。
 
-已存在 tools/s0/ 只读工具、tests/s0/ 合成测试与 Packages/PolicyCore/ 纯逻辑库。使用 python3 -m unittest discover -s tests/s0 -v；核心使用 swift test --package-path Packages/PolicyCore -Xswiftc -warnings-as-errors，并以 -c release 重跑。Python 仅用于开发测试，不是产品运行依赖。不声称执行不存在的 Xcode 工程或未运行的命令。
+已存在 tools/s0/ 只读工具、tests/s0/ 合成测试与 Packages/PolicyCore/ 纯逻辑库。使用 python3 -m unittest discover -s tests/s0 -v；核心使用 swift test --package-path Packages/PolicyCore -Xswiftc -warnings-as-errors，并以 -c release 重跑。Python 仅用于开发工具/测试，不是产品运行依赖。
+
+S1-01 原生 Xcode 工程在 apps/macos/；操作见 docs/s1-01-build.md。tools/s1/build.sh 只构建，不安装/激活；tests/s1/ 只做离线合同检查。Provider 有意返回1001，须真实日志证明已进入；没有协议后端时禁止配置默认隧道吸收流量。签名账号、profile 与 Signing.local.xcconfig 留在本机。不要把 parse/plist 测试称为 xcodebuild 或真实签名通过。
 
 ## 代码与系统边界
 

@@ -23,3 +23,10 @@ vpn-diff.txt
 DerivedData/
 __pycache__/
 *.py[cod]
+
+# Signing metadata remains on the developer's Mac.
+apps/macos/Config/Signing.local.xcconfig
+*.xcuserstate
+xcuserdata/
+*.xcarchive
+*.dSYM/
