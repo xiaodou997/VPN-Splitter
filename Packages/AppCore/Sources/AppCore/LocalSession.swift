@@ -98,31 +98,6 @@ public struct PolicyPreview: Sendable {
     }
 }
 
-public enum MockState: String, Sendable {
-    case idle = "模拟：未开始（真实网络未接管）"
-    case connecting = "模拟：连接中（真实网络未接管）"
-    case connected = "模拟：连接成功（不代表 VPN 已连接）"
-    case failed = "模拟：认证失败（注入的测试故障）"
-}
-
-/// Tokens fence late completions after cancellation, edits and reconnects.
-/// There are intentionally no network APIs or real-connected states here.
-public struct MockConnection: Sendable {
-    public private(set) var state: MockState = .idle
-    private var token: UUID?
-    public init() {}
-    public mutating func begin() -> UUID {
-        let next = UUID(); token = next; state = .connecting
-        return next
-    }
-    public mutating func finish(token: UUID, success: Bool) {
-        guard self.token == token, state == .connecting else { return }
-        self.token = nil
-        state = success ? .connected : .failed
-    }
-    public mutating func cancel() { token = nil; state = .idle }
-}
-
 /// UI-independent state shared by all LocalDev windows. Only workspace is persisted.
 public struct LocalSession: Sendable {
     public private(set) var workspace: Workspace
@@ -136,28 +111,55 @@ public struct LocalSession: Sendable {
     }
     public mutating func select(_ id: UUID?) {
         guard id == nil || workspace.profiles.contains(where: { $0.id == id }) else { return }
-        if selectedID != id { selectedID = id; invalidate() }
+        if selectedID != id { selectedID = id; invalidate(reason: .selectionChanged) }
     }
-    public mutating func invalidate() { preview = nil; connection.cancel() }
+    public mutating func invalidate(reason: SimulationNote = .interrupted) {
+        preview = nil; connection.cancel(reason: reason)
+    }
     public mutating func commit(_ next: Workspace, store: any WorkspacePersistence) throws {
         try store.save(next)
         workspace = next
         if !workspace.profiles.contains(where: { $0.id == selectedID }) {
             selectedID = workspace.profiles.first?.id
         }
-        invalidate()
+        invalidate(reason: .configurationChanged)
     }
     public mutating func compile() throws {
-        invalidate()
+        invalidate(reason: .rechecked)
         guard let profile else { throw DraftError.noProfile }
         preview = try PolicyPreview.compile(profile)
     }
     public mutating func beginSimulation() throws -> UUID {
-        try compile()
-        return connection.begin()
+        guard connection.canStart else { throw SimulationCommandError.alreadyActive }
+        preview = nil; connection.prepare()
+        do {
+            guard let profile else { throw DraftError.noProfile }
+            let compiled = try PolicyPreview.compile(profile)
+            preview = compiled
+            let token = connection.begin()
+            connection.bind(profileID: profile.id, context: compiled.plan.context)
+            return token
+        } catch {
+            connection.rejectPolicy()
+            throw error
+        }
     }
+
+    @discardableResult
+    public mutating func receiveSimulation(_ signal: SimulationSignal, attempt: SimulationAttempt) -> Bool {
+        guard selectedID == attempt.profileID, let preview, preview.profileID == attempt.profileID,
+              preview.plan.context.check(against: attempt.context) == .current else { return false }
+        return connection.receive(signal, attempt: attempt)
+    }
+
     public mutating func finishSimulation(token: UUID, success: Bool) {
-        connection.finish(token: token, success: success)
+        guard let attempt = connection.attempt, attempt.id == token else { return }
+        receiveSimulation(success ? .connected : .authenticationFailed, attempt: attempt)
     }
-    public mutating func cancelSimulation() { connection.cancel() }
+
+    public mutating func requestSimulationStop() -> UUID? { connection.requestStop() }
+    @discardableResult
+    public mutating func finishSimulationStop(token: UUID) -> Bool { connection.finishStop(token: token) }
+    public mutating func cancelSimulation(reason: SimulationNote = .interrupted) { connection.cancel(reason: reason) }
+    public mutating func clearSimulationHistory() { connection.clearHistory() }
 }

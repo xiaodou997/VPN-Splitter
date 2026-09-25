@@ -23,7 +23,7 @@ class LayoutBatchContracts(unittest.TestCase):
         self.assertIn('accessibilityIdentifier("profile-settings")', header)
         self.assertIn('.fixedSize(horizontal: false, vertical: true)', header)
         self.assertNotIn('ScrollView', header)
-        self.assertIn('LD-03A · 真实 VPN 未接入', UI)
+        self.assertIn('LD-03B · 真实 VPN 未接入', UI)
         self.assertIn('本地开发模式：不接管网络', UI)
 
     def test_batch_uses_same_protected_editor(self):

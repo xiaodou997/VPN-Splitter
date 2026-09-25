@@ -60,7 +60,7 @@ class ParameterContracts(unittest.TestCase):
 
     def test_normal_layout_and_no_new_network_effects(self):
         self.assertIn('HSplitView {', UI)
-        self.assertIn('LD-03A · 真实 VPN 未接入', UI)
+        self.assertIn('LD-03B · 真实 VPN 未接入', UI)
         self.assertIn('本地开发模式：不接管网络', UI)
         for forbidden in ['import Network', 'URLSession', 'Process()', 'SecItem', 'print(', 'Logger(']:
             self.assertNotIn(forbidden, PARAMETERS)

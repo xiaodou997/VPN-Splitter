@@ -17,7 +17,7 @@ final class LocalDevModel: ObservableObject {
     @Published private(set) var keychainBusy = false
     private var lease: WorkspaceLease?
     private var store: DraftStore?
-    private var completion: Task<Void, Never>?
+    private let simulationDriver = SimulationDriver()
     var canAct: Bool { storageReady && editor.allowsWorkspaceActions && pendingImport == nil && !choosingImport && !quitAfterEditorDismissal && !keychainBusy }
 
     init() {
@@ -39,7 +39,7 @@ final class LocalDevModel: ObservableObject {
         guard canAct else { return }
         let previous = session.selectedID
         session.select(id)
-        if session.selectedID != previous { completion?.cancel(); message = ""; issues = [] }
+        if session.selectedID != previous { simulationDriver.cancel(); message = ""; issues = [] }
     }
 
     @discardableResult
@@ -47,7 +47,7 @@ final class LocalDevModel: ObservableObject {
         guard canAct, let store else { return false }
         do {
             try session.commit(workspace, store: store)
-            completion?.cancel(); message = ""; issues = []
+            simulationDriver.cancel(); message = ""; issues = []
             return true
         } catch { message = PolicyFeedback.message(error); return false }
     }
@@ -65,7 +65,7 @@ final class LocalDevModel: ObservableObject {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        completion?.cancel(); session.invalidate(); issues = []; message = ""
+        simulationDriver.cancel(); session.invalidate(); issues = []; message = ""
         do {
             let material = try WGImportFileReader.readCredentials(url)
             pendingImport = try CredentialImportTransaction(material: material, workspace: session.workspace, replacing: profileID)
@@ -80,7 +80,7 @@ final class LocalDevModel: ObservableObject {
     ) {
         guard storageReady, !keychainBusy, let store else { return }
         keychainBusy = true; message = ""; issues = []
-        completion?.cancel(); session.cancelSimulation()
+        simulationDriver.cancel(); session.cancelSimulation(reason: .credentials)
         let initial = session
         Task { [weak self] in
             let result = await Task.detached(priority: .userInitiated) { () -> (LocalSession, Bool, String) in
@@ -231,7 +231,7 @@ final class LocalDevModel: ObservableObject {
     private func begin(_ value: DraftEdit) {
         do {
             try editor.begin(value)
-            completion?.cancel(); session.cancelSimulation(); message = ""
+            simulationDriver.cancel(); session.cancelSimulation(reason: .editing); message = ""
         } catch { message = PolicyFeedback.message(error) }
     }
 
@@ -253,14 +253,14 @@ final class LocalDevModel: ObservableObject {
         guard storageReady, !keychainBusy, let store else { return false }
         do {
             try editor.save(session: &session, store: store)
-            completion?.cancel(); message = ""; issues = []
+            simulationDriver.cancel(); message = ""; issues = []
             return true
         } catch { message = PolicyFeedback.message(error); return false }
     }
 
     func compile() {
         guard canAct else { return }
-        completion?.cancel(); issues = []; message = ""
+        simulationDriver.cancel(); issues = []; message = ""
         do { try session.compile() }
         catch { reportCheck(error) }
     }
@@ -270,21 +270,40 @@ final class LocalDevModel: ObservableObject {
         else { message = PolicyFeedback.message(error) }
     }
 
-    func simulate(failure: Bool) {
-        guard canAct else { return }
-        completion?.cancel(); issues = []; message = ""
+    func simulate(scenario: SimulationScenario) {
+        guard canAct, session.connection.canStart else { return }
+        simulationDriver.cancel(); issues = []; message = ""
         do {
-            let token = try session.beginSimulation()
-            completion = Task { [weak self] in
-                do { try await Task.sleep(for: .seconds(1)) }
-                catch { return }
-                guard !Task.isCancelled else { return }
-                self?.session.finishSimulation(token: token, success: !failure)
+            _ = try session.beginSimulation()
+            guard let attempt = session.connection.attempt else { return }
+            simulationDriver.start(attempt, scenario: scenario) { [weak self] attempt, signal in
+                guard let self else { return }
+                self.session.receiveSimulation(signal, attempt: attempt)
             }
         } catch { reportCheck(error) }
     }
 
-    func cancel() { completion?.cancel(); session.cancelSimulation() }
+    func cancel() {
+        guard canAct, let token = session.requestSimulationStop() else { return }
+        simulationDriver.stop(token: token) { [weak self] token in
+            self?.session.finishSimulationStop(token: token)
+        }
+    }
+
+    func simulateNetworkChange() {
+        guard canAct else { return }
+        simulationDriver.cancel(); session.invalidate(reason: .environmentChanged)
+        issues = []; message = "手动模拟网络变化：旧检查和模拟已失效；没有探测或修改系统网络。"
+    }
+
+    func clearSimulationHistory() {
+        guard canAct else { return }
+        session.clearSimulationHistory()
+    }
+
+    func endSimulationForQuit() {
+        simulationDriver.cancel(); session.cancelSimulation(reason: .exiting)
+    }
 
     // The buffer lives on the App model, not on a replaceable profile View.
     // Menu Quit and the application delegate both use this same decision.
@@ -342,7 +361,9 @@ final class LocalDevModel: ObservableObject {
 final class LocalDevDelegate: NSObject, NSApplicationDelegate {
     weak var model: LocalDevModel?
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        model?.canQuit() == false ? .terminateCancel : .terminateNow
+        guard model?.canQuit() != false else { return .terminateCancel }
+        model?.endSimulationForQuit()
+        return .terminateNow
     }
 }
 
@@ -374,7 +395,7 @@ private struct LocalDevRoot: View {
             HStack {
                 Label("本地开发模式：不接管网络", systemImage: "wrench.and.screwdriver").bold()
                 Spacer()
-                Text("LD-03A · 真实 VPN 未接入").foregroundStyle(.secondary)
+                Text("LD-03B · 真实 VPN 未接入").foregroundStyle(.secondary)
             }.padding().background(.quaternary)
             if !model.message.isEmpty {
                 Text(model.message).textSelection(.enabled)
@@ -444,7 +465,7 @@ private struct ProfilePane: View {
     @State private var searchQuery = ""
     @State private var target = "198.51.100.7"
     @State private var explanation = ""
-    @State private var simulateFailure = false
+    @State private var simulationScenario = SimulationScenario.success
     @State private var confirmDelete = false
     @State private var deleteRuleID: UUID?
     @State private var showWireGuard = false
@@ -658,10 +679,35 @@ private struct ProfilePane: View {
         DisclosureGroup("开发工具（模拟与合成示例）") {
             VStack(alignment: .leading, spacing: 8) {
                 Text(model.session.connection.state.rawValue).font(.callout)
+                Text("只测试交互流程，不读取 Keychain，不联系服务器。重试由你手动发起。")
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("本次模拟场景", selection: $simulationScenario) {
+                    ForEach(SimulationScenario.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }.disabled(!model.session.connection.canStart)
                 HStack {
-                    Button("开始 / 重试模拟") { model.simulate(failure: simulateFailure) }
-                    Button("取消 / 停止模拟") { model.cancel() }
-                    Toggle("注入认证失败", isOn: $simulateFailure)
+                    Button(model.session.connection.startTitle) { model.simulate(scenario: simulationScenario) }
+                        .disabled(!model.session.connection.canStart).accessibilityIdentifier("simulation-start")
+                    Button(model.session.connection.stopTitle) { model.cancel() }
+                        .disabled(!model.session.connection.canStop).accessibilityIdentifier("simulation-stop")
+                    Button("模拟网络变化") { model.simulateNetworkChange() }
+                }
+                if model.session.connection.state == .connecting || model.session.connection.state == .stopping {
+                    ProgressView().controlSize(.small)
+                }
+                if let failure = model.session.connection.failure {
+                    Text(failure.message).font(.caption).textSelection(.enabled)
+                }
+                DisclosureGroup("模拟过程（最近 32 项，仅本次运行）") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(model.session.connection.history) { entry in
+                                    Text(entry.note.rawValue).font(.caption)
+                                }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }.frame(maxHeight: 110)
+                        Button("清空模拟记录") { model.clearSimulationHistory() }
+                    }
                 }
                 Button("添加合成示例") {
                     model.changeRules { draft in

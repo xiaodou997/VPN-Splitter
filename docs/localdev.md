@@ -1,6 +1,6 @@
 # LocalDev：本地策略、配置与凭据开发版
 
-当前批次 **LD-03A**：WireGuard 参数编辑与凭据安全换绑；保留批量 IPv4 规则、搜索、结构导入及 Keychain 恢复。用户已反馈 LD-02C 显示正常，记为该布局的 USER_REPORTED 结果，不等于新版参数窗口、真实 Keychain 或 VPN 已验收。[本轮证据](evidence/localdev-03a-parameters.md)、[参数指南](localdev-wireguard-editing.md)、[ADR-011](adr/ADR-011-wireguard-parameter-editing.md)。
+当前批次 **LD-03B**：统一模拟连接、取消/停止、超时、失败重试和配置失效流程；保留 WireGuard 参数编辑、批量规则、搜索与 Keychain 恢复。用户此前只反馈 LD-02C 显示正常；没有新版参数窗口、真实 Keychain 或 VPN 的完整验收结果。[本轮证据](evidence/localdev-03b-lifecycle.md)、[模拟指南](localdev-simulation.md)、[ADR-012](adr/ADR-012-localdev-simulation-lifecycle.md)。
 
 ## 更新与打开
 
@@ -14,9 +14,9 @@ git pull --ff-only &&
 /bin/bash tools/localdev/build.sh run
 ```
 
-本地修改冲突或分支分叉时停止并保留工作，不 reset / clean / force。Git 拉取与构建不迁移用户数据。LD-03A 不新增工作区格式或凭据记录版本。
+本地修改冲突或分支分叉时停止并保留工作，不 reset / clean / force。Git 拉取与构建不迁移用户数据。LD-03B 不新增工作区格式或凭据记录版本。
 
-成功终端应有 `schema=localdev-build-v1`、`exit_code=0`、`network_settings=NOT_APPLIED`、`extension_activation=NOT_REQUESTED`。窗口应显示 **本地开发模式：不接管网络** 和 **LD-03A**。这些日志不代替窗口或真实 Keychain 验证。
+成功终端应有 `schema=localdev-build-v1`、`exit_code=0`、`network_settings=NOT_APPLIED`、`extension_activation=NOT_REQUESTED`。窗口应显示 **本地开发模式：不接管网络** 和 **LD-03B**。这些日志不代替窗口或真实 Keychain 验证。
 
 日常只运行 `/bin/bash tools/localdev/build.sh run`，只构建用 `build`。旧 S1 preflight / unsigned 无需重跑，development 继续暂停。独立目标不嵌入扩展、不安装到 Applications、不申请 root、不修改网络。日志在 `.local/localdev/`，不要整体上传。
 
@@ -26,7 +26,15 @@ git pull --ff-only &&
 
 规则页支持批量添加和搜索。搜索仅筛选显示，检查仍使用完整策略，筛选中暂停排序。独立编辑窗口有保存/取消及旧副本覆盖保护；开关和排序在无编辑窗口时立即保存。删除有确认但无撤销。保存/切换/重新检查使旧结果失效；模拟状态不等于真实连接。详见 [批量规则](localdev-rules.md)。
 
-已导入 WireGuard 的策略可展开结构区域点击“编辑参数”。本轮支持 Address、DNS IP、ListenPort、MTU、每个已有 Peer 的 Endpoint 和 PersistentKeepalive，保存前显示修改字段与结构预览。名称、规则、AllowedIPs、Peer 身份及密钥保持不变；范围/密钥变更用重新导入。保存后必须重新检查，不写回原 .conf。详见 [参数指南](localdev-wireguard-editing.md)。
+已导入 WireGuard 的策略可展开结构区域点击“编辑参数”。支持 Address、DNS IP、ListenPort、MTU、每个已有 Peer 的 Endpoint 和 PersistentKeepalive，保存前显示修改字段与结构预览。名称、规则、AllowedIPs、Peer 身份及密钥保持不变；范围/密钥变更用重新导入。保存后必须重新检查，不写回原 .conf。详见 [参数指南](localdev-wireguard-editing.md)。
+
+## 模拟连接流程
+
+展开“开发工具”，选择正常成功、认证失败、连接超时或成功后中断。启动先同步检查已保存的完整策略；不通过时不启动连接定时器。通过后才进入模拟连接，可取消或停止。3 秒为本地模拟等待上限，不是服务器或真实协议超时；主线程繁忙可能使界面稍后才显示超时，但过期结果不会被接受为成功。
+
+重复开始不会重置正在进行的尝试；取消和停止使旧回调立即失效，短暂“停止中”后分别显示已取消或未开始。失败和中断不会自动重连，可以改场景后手动重试。保存、切换、重新检查、进入编辑或凭据操作会停止旧模拟；“模拟网络变化”仅手动使旧检查和模拟失效，不观察系统网络。
+
+过程记录仅保存最近 32 个固定事件于本次进程内，不包含名称、目标、密钥或凭据引用。清空记录不取消模拟；退出重开不恢复模拟或过程记录。模拟不用 Keychain，不更改策略、路由或 DNS。详见 [模拟人工清单与限制](localdev-simulation.md)。
 
 ## 凭据与恢复
 
@@ -46,7 +54,7 @@ git pull --ff-only &&
 /bin/bash tools/localdev/test.sh
 ```
 
-该入口只执行 AppCore Debug/Release 与离线合同检查，不打开 App、不访问真实 Keychain。新版原生窗口/授权行为仍需 [参数合成清单](localdev-wireguard-editing.md) 验证，不能拿 Linux 替身测试填补。
+该入口执行 AppCore Debug/Release、模拟状态与调度测试及离线合同检查，不打开 App、不访问真实 Keychain。新版原生窗口需执行模拟指南；凭据/参数仍需 [参数合成清单](localdev-wireguard-editing.md) 验证，不能拿 Linux 替身或虚拟时钟填补。
 
 真实 WireGuard/OpenVPN/External、Endpoint DNS 解析、物理拓扑探测和实际出口均未实现。DOMAIN、后缀、IPv6、REJECT 草稿启用时仍拒绝检查；IPv6 未覆盖，无系统级 Kill Switch。保存格式正确也不代表配置约束检查或服务器认证通过。
 
