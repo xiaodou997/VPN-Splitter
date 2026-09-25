@@ -38,6 +38,20 @@ public struct KeychainCredentialVault: CredentialVault {
         #endif
     }
 
+    public func copyUpdatingParameters(from source: CredentialReference, to destination: CredentialReference,
+                                       expected: WGMetadata, updated: WGMetadata) throws {
+        guard source.profileID == destination.profileID, source.id != destination.id else { throw CredentialError.ownership }
+        try WGParameterDraft.checkPreserved(expected, updated: updated)
+        #if os(macOS)
+        let record = try read(source).record
+        try record.check(reference: source, metadata: expected)
+        // create performs a full byte-for-byte envelope readback before returning.
+        try create(record.updatingParameters(updated), reference: destination)
+        #else
+        throw CredentialError.unavailable
+        #endif
+    }
+
     public func removeOwned(reference: CredentialReference) throws {
         #if os(macOS)
         let item: Item

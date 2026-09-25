@@ -10,7 +10,7 @@ public enum DraftEditError: String, Error, Sendable {
 /// An in-memory transaction. Never persisted; no partial changes reach the workspace.
 /// The complete profile baseline intentionally makes concurrent edits conservative.
 public struct DraftEdit: Identifiable, Equatable, Sendable {
-    public enum Kind: Sendable { case settings, rule, batch }
+    public enum Kind: Sendable { case settings, rule, batch, parameters }
     public let id = UUID()
     public let kind: Kind
     public let baseline: ProfileDraft
@@ -20,12 +20,14 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
     public var backend: DraftBackend
     public var defaultAction: DraftAction
     public var rule: DraftRule
+    public var parameters: WGParameterDraft?
     public var batchText = ""
     public var batchAction: DraftAction
 
     private init(profile: ProfileDraft, kind: Kind, rule: DraftRule, isNewRule: Bool) {
         baseline = profile; self.kind = kind; initialRule = rule
         self.rule = rule; self.isNewRule = isNewRule
+        parameters = profile.wireGuard.map(WGParameterDraft.init)
         batchAction = profile.defaultAction == .vpn ? .direct : .vpn
         name = profile.name; backend = profile.backend; defaultAction = profile.defaultAction
     }
@@ -47,10 +49,17 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
         Self(profile: profile, kind: .batch, rule: DraftRule(), isNewRule: false)
     }
 
+    public static func parameterEdit(_ profile: ProfileDraft) throws -> Self {
+        guard profile.backend == .wireGuard, let metadata = profile.wireGuard else { throw WGParameterError.missing }
+        try metadata.validate()
+        return Self(profile: profile, kind: .parameters, rule: DraftRule(), isNewRule: false)
+    }
+
     public var hasChanges: Bool {
         switch kind {
         case .settings:
             name != baseline.name || backend != baseline.backend || defaultAction != baseline.defaultAction
+        case .parameters: parameters != baseline.wireGuard.map(WGParameterDraft.init)
         case .rule: rule != initialRule
         case .batch: !batchText.isEmpty || batchAction != (baseline.defaultAction == .vpn ? .direct : .vpn)
         }
@@ -65,6 +74,7 @@ public struct DraftEdit: Identifiable, Equatable, Sendable {
         }
         var next = workspace
         switch kind {
+        case .parameters: throw WGParameterError.transactionRequired
         case .settings:
             next.profiles[index].name = name
             next.profiles[index].backend = backend

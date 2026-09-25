@@ -195,7 +195,8 @@ public struct WGMetadata: Codable, Equatable, Sendable {
     }
 }
 
-private enum WGValidation {
+// Shared with the bounded parameter editor; not a public parsing API.
+enum WGValidation {
     static func ip(_ text: String) -> Int? {
         guard !text.isEmpty, text.utf8.count <= 45, !text.contains("%"),
               text.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) ||

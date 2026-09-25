@@ -196,6 +196,38 @@ final class LocalDevModel: ObservableObject {
         begin(.batch(profile))
     }
 
+    func openWireGuardParameters() {
+        guard canAct, let profile = session.profile else { return }
+        do { begin(try .parameterEdit(profile)) }
+        catch { message = PolicyFeedback.message(error) }
+    }
+
+    func saveWireGuardParameters() {
+        guard storageReady, !keychainBusy, pendingImport == nil, !choosingImport,
+              let edit = editor.edit, edit.kind == .parameters else { return }
+        performCredentialWork({ state, store in
+            let vault = KeychainCredentialVault()
+            let changed = try WGParameterOperations.save(edit, session: &state, store: store, vault: vault)
+            if changed, let old = edit.baseline.credential {
+                do { try CredentialOperations.cleanup(session: &state, store: store, vault: vault, only: old) }
+                catch { return "参数已保存；旧凭据清理待重试。请重新检查规则。" + PolicyFeedback.message(error) }
+            }
+            return changed ? "参数已保存，请重新检查规则；未应用网络设置，原 .conf 未修改。" : "参数没有实质变化，未写入工作区或 Keychain。"
+        }, onSuccess: { [weak self] in
+            guard let self, self.editor.edit?.id == edit.id else { return }
+            _ = self.editor.cancel(discardChanges: true)
+        })
+    }
+
+    func retryParameterCleanup() {
+        guard storageReady, !keychainBusy, pendingImport == nil, !choosingImport,
+              editor.edit?.kind == .parameters else { return }
+        performCredentialWork { state, store in
+            try CredentialOperations.cleanup(session: &state, store: store, vault: KeychainCredentialVault())
+            return "待清理记录已处理；未保存输入仍保留，请重新点击保存参数。"
+        }
+    }
+
     private func begin(_ value: DraftEdit) {
         do {
             try editor.begin(value)
@@ -204,6 +236,7 @@ final class LocalDevModel: ObservableObject {
     }
 
     func updateEditor(id: UUID, _ change: (inout DraftEdit) -> Void) {
+        guard !keychainBusy else { return }
         editor.update(id: id, change)
     }
 
@@ -267,6 +300,15 @@ final class LocalDevModel: ObservableObject {
             cancelImport()
         }
         guard editor.hasUnsavedChanges else { return true }
+        if editor.edit?.kind == .parameters {
+            // Never begin an asynchronous Keychain save inside a termination callback.
+            let alert = NSAlert()
+            alert.messageText = "WireGuard 参数尚未保存"
+            alert.informativeText = "请先在参数窗口保存，再退出。放弃只丢弃本次输入，不删除已保存配置或待清理记录。"
+            alert.addButton(withTitle: "继续编辑")
+            alert.addButton(withTitle: "放弃修改并退出")
+            return alert.runModal() == .alertSecondButtonReturn ? closeEditor(discard: true) : false
+        }
         let alert = NSAlert()
         alert.messageText = "有未保存的修改"
         alert.informativeText = "请选择继续编辑、保存并退出，或放弃本次修改。保存失败不会退出。"
@@ -332,7 +374,7 @@ private struct LocalDevRoot: View {
             HStack {
                 Label("本地开发模式：不接管网络", systemImage: "wrench.and.screwdriver").bold()
                 Spacer()
-                Text("LD-02C · 真实 VPN 未接入").foregroundStyle(.secondary)
+                Text("LD-03A · 真实 VPN 未接入").foregroundStyle(.secondary)
             }.padding().background(.quaternary)
             if !model.message.isEmpty {
                 Text(model.message).textSelection(.enabled)
@@ -427,6 +469,7 @@ private struct ProfilePane: View {
                         Button("仅移除凭据", role: .destructive) { confirmRemoveCredentials = true }
                     }
                     if profile.wireGuard != nil {
+                        Button("编辑 WireGuard 参数") { model.openWireGuardParameters() }
                         Button("移除导入结构", role: .destructive) { confirmRemoveWireGuard = true }
                         Divider()
                     }
@@ -440,6 +483,8 @@ private struct ProfilePane: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack {
+                                Button("编辑参数") { model.openWireGuardParameters() }
+                                    .accessibilityIdentifier("wireguard-parameters")
                                 Button("重新导入") { model.chooseWireGuard(replacing: profile.id) }
                                 if profile.credential != nil {
                                     Button("检查 Keychain 读取") { model.verifyCredentials(profile.id) }
@@ -639,6 +684,71 @@ private struct EditorPane: View {
                 set: { value in model.updateEditor(id: edit.id) { $0[keyPath: key] = value } })
     }
 
+    private func parameterField(_ key: WritableKeyPath<WGParameterDraft, String>, edit: DraftEdit) -> Binding<String> {
+        Binding(get: { model.editor.edit?.parameters?[keyPath: key] ?? edit.parameters?[keyPath: key] ?? "" },
+                set: { value in model.updateEditor(id: edit.id) { $0.parameters?[keyPath: key] = value } })
+    }
+
+    private func peerField(_ index: Int, key: WritableKeyPath<WGPeerParameterDraft, String>, edit: DraftEdit) -> Binding<String> {
+        Binding(get: {
+            guard let peers = model.editor.edit?.parameters?.peers, peers.indices.contains(index) else { return "" }
+            return peers[index][keyPath: key]
+        }, set: { value in
+            model.updateEditor(id: edit.id) { draft in
+                guard draft.parameters?.peers.indices.contains(index) == true else { return }
+                draft.parameters?.peers[index][keyPath: key] = value
+            }
+        })
+    }
+
+    @ViewBuilder
+    private func parameterFields(_ edit: DraftEdit) -> some View {
+        if let original = edit.baseline.wireGuard, let parameters = edit.parameters {
+            Text(edit.baseline.credential == nil
+                 ? "仅更新本地结构；不会自动补充或保存密钥。"
+                 : "保存将读取原 Keychain 项，保留密钥并创建新参数绑定；成功后才清理旧项。可能需要系统授权。")
+                .font(.callout)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("接口地址（逗号分隔）", text: parameterField(\.addresses, edit: edit))
+                    TextField("DNS IP 地址（逗号分隔）", text: parameterField(\.dnsServers, edit: edit))
+                    HStack {
+                        TextField("监听端口（空白为未指定）", text: parameterField(\.listenPort, edit: edit))
+                        TextField("MTU（空白为自动）", text: parameterField(\.mtu, edit: edit))
+                    }
+                    Text("Address 保留主机位；DNS 只接收 IP。搜索域、AllowedIPs、Peer 身份和密钥保持原样。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(Array(parameters.peers.enumerated()), id: \.element.id) { index, peer in
+                        GroupBox("Peer \(index + 1)") {
+                            VStack(alignment: .leading, spacing: 8) {
+                                TextField("端点（主机:端口）", text: peerField(index, key: \.endpoint, edit: edit))
+                                TextField("保活秒数（空白为未指定，0/off 为关闭）", text: peerField(index, key: \.persistentKeepalive, edit: edit))
+                            }.padding(4)
+                        }
+                    }
+                    switch Result(catching: { try parameters.metadata(replacing: original) }) {
+                    case .success(let updated):
+                        Text("修改字段：" + ((try? parameters.changedFields(from: original).joined(separator: "、")) ?? ""))
+                            .font(.caption)
+                        ForEach(Array(updated.compatibilityIssues.enumerated()), id: \.offset) { _, issue in
+                            Text(issue.message).font(.caption)
+                        }
+                        DisclosureGroup("查看将保存的结构（不是连接或检查结果）") {
+                            Text(updated.summary).font(.caption).textSelection(.enabled)
+                        }
+                    case .failure(let error):
+                        Text(PolicyFeedback.message(error)).font(.caption)
+                    }
+                }.textFieldStyle(.roundedBorder).padding(4)
+            }.frame(maxHeight: 330)
+            if !model.session.workspace.cleanupQueue.isEmpty {
+                Text("有待清理记录；原参数和本次输入仍保留。先清理，再重试保存。")
+                    .font(.caption)
+                Button("重试清理（不保存参数）") { model.retryParameterCleanup() }
+            }
+        }
+    }
+
     @ViewBuilder
     private func batchFields(_ edit: DraftEdit) -> some View {
         Text("每行一个 IPv4 地址或网段；支持空行和 # 注释。全部使用下面选择的动作。")
@@ -680,7 +790,7 @@ private struct EditorPane: View {
     var body: some View {
         if let edit = model.editor.edit {
             VStack(alignment: .leading, spacing: 16) {
-                Text(edit.kind == .settings ? "策略设置" : (edit.kind == .batch ? "批量添加规则" : (edit.isNewRule ? "添加规则" : "编辑规则")))
+                Text(edit.kind == .parameters ? "编辑 WireGuard 参数" : (edit.kind == .settings ? "策略设置" : (edit.kind == .batch ? "批量添加规则" : (edit.isNewRule ? "添加规则" : "编辑规则"))))
                     .font(.title2).bold()
                 if edit.kind == .settings {
                     TextField("策略名称", text: field(\.name, edit: edit))
@@ -702,6 +812,8 @@ private struct EditorPane: View {
                         Text("只影响规则检查，不表示 VPN 后端已经实现。External 仅支持第二种分流方式。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                } else if edit.kind == .parameters {
+                    parameterFields(edit)
                 } else if edit.kind == .batch {
                     batchFields(edit)
                 } else {
@@ -725,17 +837,21 @@ private struct EditorPane: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text(edit.kind == .batch ? "保存会一次追加全部有效规则；含格式错误时整批不保存。只更新本地草稿，不接管网络。不要填写密钥或密码。" : "保存只更新本地草稿，不接管网络。未完成的规则可以保存，但必须修正或禁用后才能通过检查。不要填写密钥或密码。")
+                Text(edit.kind == .parameters ? "保存后原检查结果失效，需要重新检查；不连接 VPN，不写回原 .conf。密钥或 Peer 范围变更请重新导入。" : (edit.kind == .batch ? "保存会一次追加全部有效规则；含格式错误时整批不保存。只更新本地草稿，不接管网络。不要填写密钥或密码。" : "保存只更新本地草稿，不接管网络。未完成的规则可以保存，但必须修正或禁用后才能通过检查。不要填写密钥或密码。"))
                     .font(.caption).foregroundStyle(.secondary)
+                if model.keychainBusy { ProgressView("正在保存；请勿强制退出。") }
                 if !model.message.isEmpty { Text(model.message).textSelection(.enabled) }
                 HStack {
                     Text(edit.hasChanges ? "有未保存的修改" : "尚未修改").font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("取消") { if !model.closeEditor() { confirmDiscard = true } }.keyboardShortcut(.cancelAction)
-                    Button(edit.kind == .batch ? "确认追加规则" : "保存草稿") { _ = model.saveEditor() }.keyboardShortcut(.defaultAction)
+                    Button(edit.kind == .parameters ? "保存参数" : (edit.kind == .batch ? "确认追加规则" : "保存草稿")) {
+                        if edit.kind == .parameters { model.saveWireGuardParameters() }
+                        else { _ = model.saveEditor() }
+                    }.keyboardShortcut(.defaultAction)
                 }
             }
-            .padding(24).frame(width: 540)
+            .padding(24).frame(width: 540).disabled(model.keychainBusy)
             .confirmationDialog("放弃未保存的修改？", isPresented: $confirmDiscard, titleVisibility: .visible) {
                 Button("放弃修改", role: .destructive) { _ = model.closeEditor(discard: true) }
                 Button("继续编辑", role: .cancel) {}

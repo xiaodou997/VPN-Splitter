@@ -29,7 +29,7 @@ class WireGuardContractTests(unittest.TestCase):
 
     def test_keys_are_validated_but_metadata_has_no_key_payloads(self):
         peer = IMPORT.split("public struct WGPeerMetadata:")[1].split("public struct WGCompatibilityIssue:")[0]
-        metadata = IMPORT.split("public struct WGMetadata:")[1].split("private enum WGValidation")[0]
+        metadata = IMPORT.split("public struct WGMetadata:")[1].split("enum WGValidation")[0]
         for declaration in [peer, metadata]:
             for forbidden in ["let privateKey:", "let publicKey:", "let presharedKey:", "let rawConfig:", "let sourceURL:"]:
                 self.assertNotIn(forbidden, declaration)

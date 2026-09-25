@@ -106,6 +106,12 @@ struct KeychainRecord: Codable, Equatable, Sendable, CustomStringConvertible, Cu
         guard self.reference == reference else { throw CredentialError.ownership }
         if let metadata, self.metadata != metadata { throw CredentialError.mismatch }
     }
+    /// Used only inside a vault to copy the same keys into a new parameter binding.
+    func updatingParameters(_ updated: WGMetadata) throws -> WGCredentialMaterial {
+        try WGParameterDraft.checkPreserved(metadata, updated: updated)
+        return try WGCredentialMaterial(metadata: updated, privateKey: payload.privateKey,
+            peers: payload.peers.map { ($0.id, $0.publicKey, $0.presharedKey) })
+    }
     var description: String { "KeychainRecord(<redacted>)" }
     var debugDescription: String { description }
     var customMirror: Mirror { Mirror(self, children: EmptyCollection<(label: String?, value: Any)>()) }
@@ -115,8 +121,18 @@ struct KeychainRecord: Codable, Equatable, Sendable, CustomStringConvertible, Cu
 public protocol CredentialVault: Sendable {
     func create(_ material: WGCredentialMaterial, reference: CredentialReference) throws
     func verify(reference: CredentialReference, metadata: WGMetadata) throws
+    /// Copy keys internally into a NEW record; never export or update the old item.
+    func copyUpdatingParameters(from source: CredentialReference, to destination: CredentialReference,
+                                expected: WGMetadata, updated: WGMetadata) throws
     /// Idempotent on missing items; rejects unreadable / malformed / wrong-owner items.
     func removeOwned(reference: CredentialReference) throws
+}
+
+extension CredentialVault {
+    public func copyUpdatingParameters(from source: CredentialReference, to destination: CredentialReference,
+                                       expected: WGMetadata, updated: WGMetadata) throws {
+        throw CredentialError.unavailable
+    }
 }
 
 /// Injected persistence lets tests interrupt every journal write without using a real Keychain.
