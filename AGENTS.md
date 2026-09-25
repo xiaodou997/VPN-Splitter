@@ -1,6 +1,10 @@
 # VPN-Splitter 开发约定
 
-本仓库当前是设计/技术验证阶段。先读 docs/plan-v0.1.md、docs/roadmap.md 和 docs/adr/ADR-001-v0.1-baseline.md；不要把文档目标当已实现事实。
+先读 docs/plan-v0.1.md、docs/roadmap.md、docs/adr/ADR-001-v0.1-baseline.md。文档目标、代码合并、编译成功与真机通过必须分别报告。
+
+## 当前工作流
+
+用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
 ## 已确定边界
 
@@ -8,22 +12,20 @@ macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、
 
 不提供系统级 Kill Switch、完整 IPv6、REJECT 执行、按 App/进程或严格域名隔离。不支持的策略在应用前拒绝，不能静默略过。DNS resolver 选择不等于数据路由。
 
-## 实现顺序与检查
+## 实现与验证
 
-按 S0–S5 的门槛推进。每个 PR 引用任务 ID、需求 ID、测试 ID，列明实际执行和未执行测试、权限影响、失败/恢复路径。纯逻辑测试不能替代签名/真机联网测试。
+按 S0–S5 门槛推进，允许无网络副作用的纯逻辑并行。每个提交引用任务/需求/测试编号，列出权限影响、失败/恢复路径、已执行与未执行测试。新架构、依赖或保证变更先更新 ADR。
 
-目前已有 Packages/PolicyCore/ 纯 Swift 包，仍没有产品 Xcode 工程或签名构建。使用 `swift test --package-path Packages/PolicyCore -Xswiftc -warnings-as-errors`，并以 `-c release` 重跑优化构建；构建及范围见包内 README 和 docs/evidence/s1-policycore-tests.md。S0 工具与用户网络证据仍在独立 PR #2。新架构、依赖、默认行为或保证等级变化先更新 ADR。
+已存在 tools/s0/ 只读工具、tests/s0/ 合成测试与 Packages/PolicyCore/ 纯逻辑库。使用 python3 -m unittest discover -s tests/s0 -v；核心使用 swift test --package-path Packages/PolicyCore -Xswiftc -warnings-as-errors，并以 -c release 重跑。Python 仅用于开发测试，不是产品运行依赖。不声称执行不存在的 Xcode 工程或未运行的命令。
 
 ## 代码与系统边界
 
-PolicyCore 不依赖 UI、Network Extension 或 root API。规则用类型化模型和确定性编译，必须保持 first-match 等价。WireGuard 协议 AllowedIPs 与系统路由分离。IPv4PolicyPlan 仅是首个地址意图片段，基础设施/peer 纯逻辑校验使用 IPv4ConstrainedPolicyCompiler；拓扑完整性、DNS/underlay/真实可达性尚未验证，不可直接安装；调用方不得把能力 presets 当实际探测结果。
+PolicyCore 不依赖 UI、NetworkExtension、root 或系统网络 API。用户规则必须保持 first-match 等价；WireGuard 协议 AllowedIPs 与系统路由分离。IPv4ConstrainedPolicyCompiler 仅检查调用方提供的拓扑和 peer 集合，不能把 planning-only 输出直接安装；能力 presets 不是真实探测结果。
 
-Managed 通过 Network Extension，不用 shell 启动第二个独立隧道。Helper 仅接受经过身份/参数/epoch 验证的结构化路由操作，不接受通用命令。只撤销可安全认领的修改，歧义不删，不恢复整个旧路由表。
+Managed 通过 Network Extension，不启动第二个独立隧道。Helper 只接受身份/参数/epoch 验证后的结构化有限操作，不接受通用命令。route 退出码 0 不证明写入成功或归属。只撤销可安全认领的修改，歧义不删，不恢复整个旧路由表。
 
 ## 安全与证据
 
-不得提交真实 .conf/.ovpn、私钥、密码、令牌、签名私钥或未脱敏网络信息。使用合成夹具；诊断在所有出口脱敏。执行会改变宿主机路由/DNS/系统扩展的测试前必须确认授权、隔离环境和恢复办法，不在普通共享 CI/办公网络盲目运行。
+不提交真实配置、密钥、密码、令牌、签名私钥、provisioning profiles 或未脱敏网络资料。使用合成夹具。S0 原始输出只保存在 .local/s0/，并非已脱敏，不能上传整个目录。执行改变路由/DNS/系统扩展的操作前需现场授权、隔离环境和恢复办法；不在共享 CI 盲目运行。不禁用 SIP、Gatekeeper 或企业强制策略来使测试通过。
 
-第三方代码、测试和资源复制前检查精确许可；根 LICENSE 不重新许可依赖。不要 Fork 整个参考 App 代替按问题验证。
-
-技术证据存 docs/evidence/，只记录实际观察。默认 NOT RUN；缺资源写 BLOCKED；不得把计划、模拟结果、编译成功或某上游项目存在写成真实 VPN 已验证。
+复制第三方内容前检查许可；根 LICENSE 不重新许可依赖。证据位于 docs/evidence/，缺环境写 BLOCKED/NOT RUN，用户反馈标 USER_REPORTED。不把模拟、源码存在或上游可用当成实际 VPN 已验证。
