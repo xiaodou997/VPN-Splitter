@@ -1,6 +1,6 @@
 {
   "schema": "wireguard-build-candidate-v1",
-  "reviewed_on": "2026-09-25",
+  "reviewed_on": "2026-09-26",
   "scope": "compile-and-link-only; not a runtime or release approval",
   "go_toolchains": [
     "go1.26.8",
@@ -25,7 +25,8 @@
     "blobs": {
       "go.mod": "2a80e000144ecb33b571b65330146a092c92ce15",
       "go.sum": "61875c16025edca1fffb5f26b325a50d73eb738e",
-      "LICENSE": "f85e365de02a257e41b27305e74277428218ff96"
+      "LICENSE": "f85e365de02a257e41b27305e74277428218ff96",
+      "tun/tun_darwin.go": "341afe3c5998051514cf57e2dd7efb24f0c3f9f6"
     }
   },
   "modules": {
@@ -42,12 +43,22 @@
     "module license inventory and reachable vulnerability review before runtime/distribution",
     "unpatched upstream Go runtime sleep semantics",
     "native settings timeout/error gate, late OS effects and Provider teardown observation",
-    "native checked wgSetConfig path; Device.Up and bridge failure cleanup still open",
-    "utun identity, credential delivery, logger/handle concurrency and redaction",
+    "native Go bridge C ABI, fd/TUN/device cleanup, blocked-call termination and checked update path",
+    "utun identity, credential delivery, Swift log filtering and secret runtime-config handling",
     "fresh runtime policy binding for start/update/resume",
     "signed provider activation and real routing/DNS/teardown evidence"
   ],
   "patched_adapter_blob": "ecce2a45f1136eab99ebfd423577de2ccce543f7",
   "settings_completion_blob": "f4c59fa6fe6bc1f1e63cd29b7bc2a24b82516481",
-  "runtime_hook_blob": "0d4e8e455792913e0aba123a8cca34a3ad326a33"
+  "runtime_hook_blob": "0d4e8e455792913e0aba123a8cca34a3ad326a33",
+  "bridge": {
+    "scope": "thin lifecycle/C ABI adaptation, not a WireGuard protocol implementation or runtime approval",
+    "files": {
+      "api-apple.go": "ffa8467ad20bafdbe5319ab1a6ad78a4c56d62a9",
+      "lifecycle.go": "491191e7afe3deaece88fd4179842915c3801ab2",
+      "lifecycle_test.go": "c01d74d58276b1ba3e2007e6db8fb8db7196edaf"
+    },
+    "installer_blob": "ffa98f4999cea100fd0e5eee8534ee9d12285e48",
+    "review_patch_blob": "dde3e55a28aef38b6116c3ccd75f162d5c83470e"
+  }
 }

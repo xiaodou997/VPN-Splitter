@@ -26,11 +26,13 @@ import tempfile
 from contextlib import contextmanager
 from policy_hook import git_blob, patch_adapter
 from runtime_hook import checked_support, patch_runtime_adapter
+from bridge_assets import checked_bridge, stage_bridge
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK_PATH = ROOT / "third-party/wireguard-go/build-lock.json"
 APPLE_PATHS = ["Package.swift", "COPYING", "Sources/WireGuardKit", "Sources/WireGuardKitC", "Sources/WireGuardKitGo"]
-REQUIRED_SYMBOLS = {"_wgTurnOn", "_wgTurnOff", "_wgSetConfig", "_wgGetConfig", "_wgBumpSockets", "_wgVersion"}
+REQUIRED_SYMBOLS = {"_wgTurnOn", "_wgTurnOff", "_wgSetConfig", "_wgGetConfig", "_wgBumpSockets", "_wgVersion",
+                    "_wgSetLogger", "_wgDisableSomeRoamingForBrokenMobileSemantics"}
 
 
 class BuildError(Exception):
@@ -275,8 +277,15 @@ def require_symbols(text: str) -> None:
 def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch: bool) -> Path:
     engine, apple = run / "wireguard-go", run / "wireguard-apple"
     before = {name: (engine / name).read_bytes() for name in ("go.mod", "go.sum")}
-    bridge = engine / "splitterbridge"; bridge.mkdir(mode=0o700)
-    shutil.copyfile(apple / "Sources/WireGuardKitGo/api-apple.go", bridge / "api-apple.go")
+    bridge = engine / "splitterbridge"
+    lock = json.loads((root / "third-party/wireguard-go/build-lock.json").read_text())
+    sources = checked_bridge(root, lock)
+    stage_bridge(sources, (apple / "Sources/WireGuardKitGo/api-apple.go").read_bytes(), bridge)
+    # Test only the shared lifecycle against in-memory devices; no C entrypoints,
+    # upstream device, TUN or network code is compiled or executed by this step.
+    commands.run([tools["go"], "test", "-race", "-count=1", "-timeout=60s",
+                  "lifecycle.go", "lifecycle_test.go"], cwd=bridge, timeout=180,
+                 extra={"CGO_ENABLED": "1"})
     # Build against the newer engine's locked module graph, NOT the Apple 2023
     # go.mod or Makefile. The system Go installation/runtime is never patched.
     if fetch:
@@ -318,6 +327,7 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
 
 def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, fetch: bool) -> dict:
     support = checked_support(ROOT, lock)
+    checked_bridge(ROOT, lock)  # Reject asset drift before any public download.
     cache = output / "sources"; private_directory(cache)
     for name in ("apple", "engine"):
         spec = lock[name]
@@ -338,7 +348,8 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
                 apple_revision=lock["apple"]["revision"], engine_revision=lock["engine"]["revision"],
                 lock_sha256=hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
                 patched_adapter_blob=git_blob(modified), settings_completion_blob=git_blob(support),
-                runtime_hook_blob=lock["runtime_hook_blob"], artifact=str(executable),
+                runtime_hook_blob=lock["runtime_hook_blob"], bridge=lock["bridge"],
+                bridge_lifecycle_tests="PASS", artifact=str(executable),
                 artifact_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
                 execution="NOT_RUN", provider="NOT_LINKED", runtime_approval="NOT_GRANTED",
                 network_settings="NOT_APPLIED", extension_activation="NOT_REQUESTED")
@@ -370,7 +381,7 @@ def main() -> int:
             commands = Commands(env, run / "build.log")
             result = build(commands, lock, tools, output, run, args.fetch)
             (run / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
-            print("schema=wireguard-native-build-v1\ncompile_link=PASS\nartifact_execution=NOT_RUN\n"
+            print("schema=wireguard-native-build-v1\ncompile_link=PASS\nbridge_lifecycle_tests=PASS\nartifact_execution=NOT_RUN\n"
                   "provider=NOT_LINKED\nnetwork_settings=NOT_APPLIED\nextension_activation=NOT_REQUESTED")
             print("Local results: " + str(run))
             return 0

@@ -274,7 +274,7 @@ class BuildTests(unittest.TestCase):
         (root / 'wireguard-go/go.mod').write_text('locked mod')
         (root / 'wireguard-go/go.sum').write_text('locked sum')
         bridge = root / 'wireguard-apple/Sources/WireGuardKitGo'; bridge.mkdir(parents=True)
-        (bridge / 'api-apple.go').write_text('package main')
+        (bridge / 'api-apple.go').write_bytes((ROOT / 'tests/fixtures/wireguard-build/api-apple.go.reference').read_bytes())
         return dict(go='/test tools/go', swift='/test tools/swift', sdk='/test sdk', clang='/test tools/clang')
 
     def test_compile_sequence_and_no_executable_run(self):
@@ -282,11 +282,13 @@ class BuildTests(unittest.TestCase):
             run = Path(temporary); tools = self.fixture_run(run); fake = RecordingCommands(run)
             artifact = native.compile_native(fake, tools, run, ROOT, True)
             calls = [args for args, _, _ in fake.calls]
-            self.assertEqual(calls[0], [tools['go'], 'mod', 'download'])
-            self.assertEqual(calls[1], [tools['go'], 'mod', 'verify'])
-            self.assertIn('-mod=readonly', calls[2])
-            self.assertIn('-buildmode=c-archive', calls[2])
-            self.assertEqual(fake.calls[0][2], {'GOPROXY': 'https://proxy.golang.org'})
+            self.assertEqual(calls[0], [tools['go'], 'test', '-race', '-count=1', '-timeout=60s',
+                                        'lifecycle.go', 'lifecycle_test.go'])
+            self.assertEqual(calls[1], [tools['go'], 'mod', 'download'])
+            self.assertEqual(calls[2], [tools['go'], 'mod', 'verify'])
+            self.assertIn('-mod=readonly', calls[3])
+            self.assertIn('-buildmode=c-archive', calls[3])
+            self.assertEqual(fake.calls[1][2], {'GOPROXY': 'https://proxy.golang.org'})
             self.assertIn('-force_load', next(args for args in calls if args[0] == tools['swift']))
             self.assertFalse(any(args[0] == str(artifact) for args in calls))
             self.assertFalse(any('Makefile' in ' '.join(args) for args in calls))
@@ -318,7 +320,7 @@ class BuildTests(unittest.TestCase):
             run = Path(temporary); fake = RecordingCommands(run, mutate_lock=True)
             with self.assertRaisesRegex(native.BuildError, 'MODULE_LOCK_CHANGED'):
                 native.compile_native(fake, self.fixture_run(run), run, ROOT, True)
-            self.assertEqual(len(fake.calls), 2)
+            self.assertEqual(len(fake.calls), 3)
 
     def test_probe_manifest_and_source_are_isolated(self):
         with tempfile.TemporaryDirectory(prefix='wg path with spaces ') as temporary:
