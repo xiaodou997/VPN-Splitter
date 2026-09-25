@@ -25,6 +25,7 @@ import tarfile
 import tempfile
 from contextlib import contextmanager
 from policy_hook import git_blob, patch_adapter
+from runtime_hook import checked_support, patch_runtime_adapter
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK_PATH = ROOT / "third-party/wireguard-go/build-lock.json"
@@ -316,6 +317,7 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
 
 
 def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, fetch: bool) -> dict:
+    support = checked_support(ROOT, lock)
     cache = output / "sources"; private_directory(cache)
     for name in ("apple", "engine"):
         spec = lock[name]
@@ -323,8 +325,11 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
         target = run / ("wireguard-apple" if name == "apple" else "wireguard-go")
         export_source(commands, repository, spec, target, APPLE_PATHS if name == "apple" else None)
     adapter = run / "wireguard-apple/Sources/WireGuardKit/WireGuardAdapter.swift"
-    original = adapter.read_bytes(); modified = patch_adapter(original)
+    original = adapter.read_bytes(); modified = patch_runtime_adapter(patch_adapter(original))
     adapter.write_bytes(modified)
+    # Same owned source as the standalone concurrency tests; reject collisions.
+    with adapter.with_name("SplitterSettingsCompletion.swift").open("xb") as destination:
+        destination.write(support)
     (run / "policy-settings.patch").write_text("".join(difflib.unified_diff(
         original.decode().splitlines(True), modified.decode().splitlines(True),
         fromfile="a/Sources/WireGuardKit/WireGuardAdapter.swift", tofile="b/Sources/WireGuardKit/WireGuardAdapter.swift")))
@@ -332,7 +337,8 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
     return dict(schema="wireguard-native-build-v1", result="PASS", tools=tools,
                 apple_revision=lock["apple"]["revision"], engine_revision=lock["engine"]["revision"],
                 lock_sha256=hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
-                patched_adapter_blob=git_blob(modified), artifact=str(executable),
+                patched_adapter_blob=git_blob(modified), settings_completion_blob=git_blob(support),
+                runtime_hook_blob=lock["runtime_hook_blob"], artifact=str(executable),
                 artifact_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
                 execution="NOT_RUN", provider="NOT_LINKED", runtime_approval="NOT_GRANTED",
                 network_settings="NOT_APPLIED", extension_activation="NOT_REQUESTED")

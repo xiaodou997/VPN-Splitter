@@ -4,6 +4,12 @@
 
 **开发入口统一为 `main`，当前为 LD-03B LocalDev，不是可用 VPN 发行版。** 本轮统一模拟连接、取消/停止、超时、失败重试与配置失效流程；保留 WireGuard 参数编辑、批量规则、搜索及 Keychain 恢复。最新回归和未验项见 [LD-03B 证据](docs/evidence/localdev-03b-lifecycle.md)。用户此前只确认 LD-02C 显示正常，不能据此认定新版 GUI 或真实 Keychain 已验收；不需要历史补丁或 ZIP。
 
+## 统一入口与后端失败处理：WG-INT-03
+
+现在只需记住根目录 `dev.sh`：`/bin/bash dev.sh doctor engine` 一次列出环境缺项；`/bin/bash dev.sh run` 打开原 LocalDev，不需要 Python/Go；`/bin/bash dev.sh engine --fetch` 显式下载并构建候选，不运行产物。缺 Go 只阻断引擎，不阻断界面；不自动安装或修改全局工具配置。详见 [开发指南](docs/development.md)。
+
+本轮提供候选 Adapter 的设置超时/失败门控和更新返回码检查，超时不再继续正常成功流程；不确定状态要求 Provider 重建，不把停止协议当作系统设置已撤销。源码/离线测试已提供，完整原生补丁应用和链接仍待 Mac 验证。界面仍为 LD-03B，签名继续暂停。[本轮证据](docs/evidence/wireguard-engine-03.md)、[构建指南](docs/wireguard-engine-build.md)。
+
 ## WireGuard 后端接入准备：WG-INT-01
 
 新增 [ManagedSettings](Packages/ManagedSettings/README.md)：把 PolicyCore 约束计划转换为独立的 IPv4 设置草稿，并在 macOS 构造真实 NE 设置对象用于检查。系统路由不再从协议 AllowedIPs 推导；完整输入和上下文必须一致。没有连接 Provider、下载/链接协议核心或修改网络，LocalDev 界面仍为 LD-03B。

@@ -1,8 +1,11 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
-# Offline build-tool contracts only; does not download or compile a VPN engine.
+# Own concurrency helper and build-tool tests only; never starts a VPN engine.
 set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export PYTHONDONTWRITEBYTECODE=1
+swift test --package-path "$ROOT/Packages/WireGuardSupport" -Xswiftc -warnings-as-errors
+swift test --package-path "$ROOT/Packages/WireGuardSupport" -c release -Xswiftc -warnings-as-errors
 python3 -m unittest discover -s "$ROOT/tests/wireguard" -v
-printf 'schema=wireguard-build-tool-tests-v1\ncontracts=PASS\nnative_compile_link=NOT_RUN\nnetwork_settings=NOT_APPLIED\n'
+python3 -m unittest discover -s "$ROOT/tests/dev" -v
+printf 'schema=wireguard-build-tool-tests-v2\nsettings_completion=PASS\ncontracts=PASS\nnative_compile_link=NOT_RUN\nnetwork_settings=NOT_APPLIED\n'

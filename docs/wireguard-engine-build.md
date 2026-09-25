@@ -1,38 +1,44 @@
-# WG-INT-02：构建 WireGuard 核心与 Swift 链接探针
+# WireGuard 核心构建与 Swift 链接探针
 
-这一步验证真实 Go 静态库和 Swift/Apple 类型的构建链接，不是再增加模拟场景。脚本及受控补丁已提供；本轮尚无 Mac 上的完整构建结果，不代表隧道已经可用。决策见 [ADR-014](adr/ADR-014-wireguard-build-only-candidate.md)，测试范围见 [证据](evidence/wireguard-engine-02.md)。
+当前 WG-INT-03 在 WG-INT-02 构建流程上增加统一环境入口和设置失败门控。目标仍是验证 Go 静态库及 Swift/Apple 类型的构建链接，不是可连接或可发行的 VPN。完整 Mac 构建尚待验证；见 [统一入口](development.md)、[最新证据](evidence/wireguard-engine-03.md) 与 [ADR-015](adr/ADR-015-settings-completion-and-dev-entry.md)。历史构建决策和结果保留在 [ADR-014](adr/ADR-014-wireguard-build-only-candidate.md) 与 [WG-INT-02 证据](evidence/wireguard-engine-02.md)。
 
 ## 从 main 更新
 
-不需要任何历史补丁或 ZIP。保留本地源码修改；拉取无法快进时停止，不强制覆盖：
+不需要历史补丁或 ZIP。保留本地修改，Git 无法快进时停止，不强制覆盖：
 
 ```sh
 git switch main &&
 git pull --ff-only &&
-/bin/bash tools/wireguard/build.sh build --fetch
+/bin/bash dev.sh doctor engine
 ```
 
-前置条件：macOS 26+、Apple Silicon、完整 Xcode/macOS SDK 26+、Python 3.9+，以及已安装并位于 PATH 的 **Go 1.26.8 或 1.27.1**。只检查环境可执行：
+只读检查会一次列出环境缺项，不安装或下载。条件仍是 macOS 26+ / arm64、完整 Xcode/SDK 26+、Python 3.9+、PATH 中的 Go 1.26.8 或 1.27.1。Go 版本来自候选锁，本轮未升级。缺 Go 仅阻断引擎构建；`/bin/bash dev.sh run` 不要求 Python 或 Go，仍能构建普通 LocalDev。
+
+条件满足后使用：
 
 ```sh
-/bin/bash tools/wireguard/build.sh preflight
+/bin/bash dev.sh engine --fetch
 ```
 
-没有 Go 或版本不匹配会在下载和创建构建目录前停止并提示 E_GO；本脚本不安装 Go、不切换 Xcode、不配置开发团队。候选版本依据 [Go 官方发布记录](https://go.dev/doc/devel/release) 固定；未来版本需显式审查更新锁文件，不自动升级。
+旧的 `/bin/bash tools/wireguard/build.sh preflight` 与 `build --fetch` 仍有效。统一入口不自动安装 Go、不切换 Xcode、不配置团队或全局 PATH。
 
-`--fetch` 表示允许下载固定版本的公开 WireGuard 源码及 Go 模块，初次构建可能需要较长时间。下载源固定为 GitHub 上 WireGuard 官方镜像、proxy.golang.org 和 sum.golang.org（以及服务自身的下载重定向）；不读取或上传用户 VPN 配置。缓存齐全后可省略 --fetch，缓存不足则拒绝，不偷偷联网补齐。网络代理或公司策略不允许访问这些服务时正常报错，不关闭 TLS 校验，也不绕过策略。
+`--fetch` 明确允许从固定 WireGuard 官方 GitHub 镜像、proxy.golang.org、sum.golang.org 及服务重定向下载公开源码/模块。初次构建可能较久；省略该参数时只使用缓存，缺少缓存即停止。不读取或上传 VPN 配置，不关闭 TLS 或模块校验，不绕过网络策略。
 
 ## 构建做什么
 
-先核对源码 commit、tree、全部导出文件的 Git blob；在隔离快照应用固定 Adapter 补丁。Apple bridge 与更新的官方 Go 核心按该核心的 go.mod/go.sum 构建 arm64 `libwg-go.a`，不运行上游修改 GOROOT 的 Makefile。随后 SwiftPM 链接 WireGuardKit、ManagedSettingsApple 和 WGLinkProbe，检查静态库与最终探针中的 wgTurnOn / wgTurnOff / wgSetConfig / wgGetConfig / wgBumpSockets / wgVersion 定义。仅有未解析的符号引用不算成功。
+先校验原始源码 revision/tree/逐文件 Git blob，再在隔离目录依次应用强制策略入口和设置失败门控变换。相同的已测试 Swift 门控源经锁校验后复制进 WireGuardKit；遇到同名文件或源码漂移拒绝。原始 Adapter 和第一阶段 patched blob 约束不变。
 
-补丁要求 Adapter 构造时显式提供策略设置工厂，start/update/resume 不再回落到上游 AllowedIPs 路由生成。只是入口编译准备，尚未验证真实控制器、最新网络快照、错误恢复或退出撤销。
+Apple bridge 放在固定 Go 核心模块的独立 main 子包中，按核心自身 go.mod/go.sum 构建 arm64 libwg-go.a；不运行旧 Makefile、不修改 GOROOT、不自动选择或下载 Go 工具链。随后 SwiftPM 链接 WireGuardKit、ManagedSettingsApple 和 WGLinkProbe，并检查静态库/探针中桥接符号是实际定义，而不是未解析引用。
 
-**脚本不运行 WGLinkProbe，不打开 App，不创建/激活扩展，不启动协议、不申请 Keychain 或 root。** 正式 Provider 和 LocalDev 均不链接这份候选，所以界面仍为 LD-03B；原来的 LocalDev 启动和 ManagedSettings 测试入口不变。
+Adapter 必须显式接收策略设置工厂，start/update/resume 不回退到 AllowedIPs 默认路由。第二阶段代码让设置错误/超时、缺失 Provider、设置后引擎启动失败以及非零 wgSetConfig 结果结束正常成功路径，标记当前实例需 Provider 重建；不自动重试。同步/重复/迟到回调由独立门控处理。
+
+**等待超时不代表系统请求已取消，协议停止也不证明路由已撤销。** 正式 Provider 的终止和撤销观察仍未实现；候选不可直接运行。Go bridge 的 Device.Up、未知句柄、部分资源清理、utun 身份、日志与凭据交付仍有开放项。真实上游两阶段完整应用及原生链接仍需实际构建验证，离线上下文测试不替代它。
+
+脚本不运行 WGLinkProbe，不打开 App，不创建/激活扩展，不启动协议，不访问 Keychain 或申请 root。LocalDev 与正式 Provider 不链接此候选；界面仍为 LD-03B，已有用户数据不迁移。
 
 ## 查看结果
 
-所有步骤通过后才输出：
+所有原生构建与符号检查通过才输出：
 
 ```text
 schema=wireguard-native-build-v1
@@ -43,8 +49,10 @@ network_settings=NOT_APPLIED
 extension_activation=NOT_REQUESTED
 ```
 
-日志和结果位于每次单独创建的 `.local/wireguard-engine/build.*`。`result.json` 记录实际 Go/Xcode/SDK/Swift 版本、源码 revision、补丁后哈希和产物哈希。日志可能含本机路径，不要上传整个目录；反馈阶段与错误片段即可。失败运行没有 result.json PASS，目录中的失败产物不可用。锁文件保留，退出进程释放锁；不要删除锁来强行并行。中断留下的目录不自动清理或复用为成功产物。
+`.local/wireguard-engine/build.*` 每次独立输出；result.json 记录实际工具版本、源码 revision、补丁后/门控源码/产物哈希以及 runtime_approval=NOT_GRANTED。失败保留本次目录和错误，不借用旧产物，不输出成功结果。锁文件不删除，进程退出释放锁。日志可能含本机路径，反馈首个错误片段即可，不上传整个目录。
 
-## 后续门槛
+不需要 Go 的本轮离线回归入口是 `/bin/bash dev.sh engine-test`。它执行门控 Debug/Release 和 Python 构建工具/入口测试，不运行真实引擎，也不能证明 Apple 系统行为。
 
-完整 Mac 构建和链接仍待执行；即使 PASS，也只证明编译链接，不证明握手、分流或安全停止。候选核心的传递依赖许可及可达漏洞评估、上游设置超时/返回值/资源清理、正确 utun 绑定、真实凭据交付仍是运行前任务。普通本地开发界面和已有数据不迁移；开发签名继续暂停，首次真实 Managed 联调前恢复。
+## 运行前门槛
+
+编译链接 PASS 仍不表示握手、分流、DNS 或安全停止通过。完整传递依赖许可证及可达漏洞评估、Go bridge 清理、正确 utun 与运行配置绑定、受控凭据交付、Provider 事务和原生证据仍须完成。开发签名继续暂停，首次真实 Managed 联调前恢复。不要清空用户 JSON/Keychain、手改版本或删除锁文件来解决构建和凭据问题。

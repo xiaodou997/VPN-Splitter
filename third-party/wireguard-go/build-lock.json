@@ -41,11 +41,13 @@
     "native macOS 26 arm64 archive and Swift link",
     "module license inventory and reachable vulnerability review before runtime/distribution",
     "unpatched upstream Go runtime sleep semantics",
-    "settings completion timeout, late completion and rollback",
-    "checked wgSetConfig / Device.Up results and bridge failure cleanup",
+    "native settings timeout/error gate, late OS effects and Provider teardown observation",
+    "native checked wgSetConfig path; Device.Up and bridge failure cleanup still open",
     "utun identity, credential delivery, logger/handle concurrency and redaction",
     "fresh runtime policy binding for start/update/resume",
     "signed provider activation and real routing/DNS/teardown evidence"
   ],
-  "patched_adapter_blob": "ecce2a45f1136eab99ebfd423577de2ccce543f7"
+  "patched_adapter_blob": "ecce2a45f1136eab99ebfd423577de2ccce543f7",
+  "settings_completion_blob": "f4c59fa6fe6bc1f1e63cd29b7bc2a24b82516481",
+  "runtime_hook_blob": "0d4e8e455792913e0aba123a8cca34a3ad326a33"
 }

@@ -1,0 +1,174 @@
+--- a/Sources/WireGuardKit/WireGuardAdapter.swift
++++ b/Sources/WireGuardKit/WireGuardAdapter.swift
+@@ -25,6 +25,11 @@
+     /// The caller must supply policy-derived settings; no AllowedIPs fallback.
+     case policyNetworkSettings(Error)
+ 
++    case missingProvider
++    case networkSettingsTimedOut
++    case providerResetRequired
++    case updateWireGuardBackend(Int64)
++
+     /// Failure to start WireGuard backend.
+     case startWireGuardBackend(Int32)
+ }
+@@ -61,6 +66,8 @@
+ 
+     /// Adapter state.
+     private var state: State = .stopped
++    // Never cleared on this instance; timeout is not an OS cancellation.
++    private var requiresProviderReset = false
+ 
+     /// Tunnel device file descriptor.
+     private var tunnelFileDescriptor: Int32? {
+@@ -185,6 +192,10 @@
+     ///   - completionHandler: completion handler.
+     public func start(tunnelConfiguration: TunnelConfiguration, completionHandler: @escaping (WireGuardAdapterError?) -> Void) {
+         workQueue.async {
++            guard !self.requiresProviderReset else {
++                completionHandler(.providerResetRequired)
++                return
++            }
+             guard case .stopped = self.state else {
+                 completionHandler(.invalidState)
+                 return
+@@ -222,6 +233,10 @@
+     /// - Parameter completionHandler: completion handler.
+     public func stop(completionHandler: @escaping (WireGuardAdapterError?) -> Void) {
+         workQueue.async {
++            guard !self.requiresProviderReset else {
++                completionHandler(.providerResetRequired)
++                return
++            }
+             switch self.state {
+             case .started(let handle, _):
+                 wgTurnOff(handle)
+@@ -249,6 +264,10 @@
+     ///   - completionHandler: completion handler.
+     public func update(tunnelConfiguration: TunnelConfiguration, completionHandler: @escaping (WireGuardAdapterError?) -> Void) {
+         workQueue.async {
++            guard !self.requiresProviderReset else {
++                completionHandler(.providerResetRequired)
++                return
++            }
+             if case .stopped = self.state {
+                 completionHandler(.invalidState)
+                 return
+@@ -271,7 +290,7 @@
+                     let (wgConfig, resolutionResults) = settingsGenerator.uapiConfiguration()
+                     self.logEndpointResolutionResults(resolutionResults)
+ 
+-                    wgSetConfig(handle, wgConfig)
++                    try self.checkedSetConfig(handle: handle, configuration: wgConfig)
+                     #if os(iOS)
+                     wgDisableSomeRoamingForBrokenMobileSemantics(handle)
+                     #endif
+@@ -313,8 +332,7 @@
+     }
+ 
+     /// Set network tunnel configuration.
+-    /// This method ensures that the call to `setTunnelNetworkSettings` does not time out, as in
+-    /// certain scenarios the completion handler given to it may not be invoked by the system.
++    /// A missing/error/late completion fails the adapter; timeout is not rollback.
+     ///
+     /// - Parameters:
+     ///   - networkSettings: an instance of type `NEPacketTunnelNetworkSettings`.
+@@ -326,28 +344,41 @@
+     }
+ 
+     private func setNetworkSettings(_ networkSettings: NEPacketTunnelNetworkSettings) throws {
+-        var systemError: Error?
+-        let condition = NSCondition()
+-
+-        // Activate the condition
+-        condition.lock()
+-        defer { condition.unlock() }
+-
+-        self.packetTunnelProvider?.setTunnelNetworkSettings(networkSettings) { error in
+-            systemError = error
+-            condition.signal()
+-        }
+-
+-        // Packet tunnel's `setTunnelNetworkSettings` times out in certain
+-        // scenarios & never calls the given callback.
+-        let setTunnelNetworkSettingsTimeout: TimeInterval = 5 // seconds
+-
+-        if condition.wait(until: Date().addingTimeInterval(setTunnelNetworkSettingsTimeout)) {
+-            if let systemError = systemError {
+-                throw WireGuardAdapterError.setNetworkSettings(systemError)
+-            }
+-        } else {
+-            self.logHandler(.error, "setTunnelNetworkSettings timed out after 5 seconds; proceeding anyway")
++        guard let provider = packetTunnelProvider else {
++            markForProviderReset()
++            throw WireGuardAdapterError.missingProvider
++        }
++        let completion = SplitterSettingsCompletion(deadline: .now() + .seconds(5))
++        provider.setTunnelNetworkSettings(networkSettings) { error in
++            completion.complete(error: error)
++        }
++        switch completion.wait() {
++        case .success: return
++        case .failure(let error):
++            markForProviderReset()
++            throw WireGuardAdapterError.setNetworkSettings(error)
++        case .timedOut:
++            markForProviderReset()
++            throw WireGuardAdapterError.networkSettingsTimedOut
++        }
++    }
++
++    // Work-queue only. An uncertain OS request cannot safely be retried in place.
++    // Stop known protocol work, but do NOT claim the system settings were removed.
++    // The future Provider controller must terminate the session and observe teardown.
++    private func markForProviderReset() {
++        requiresProviderReset = true
++        networkMonitor?.cancel()
++        networkMonitor = nil
++        if case .started(let handle, _) = state { wgTurnOff(handle) }
++        state = .stopped
++    }
++
++    private func checkedSetConfig(handle: Int32, configuration: String) throws {
++        let result = wgSetConfig(handle, configuration)
++        guard result == 0 else {
++            markForProviderReset()
++            throw WireGuardAdapterError.updateWireGuardBackend(result)
+         }
+     }
+ 
+@@ -384,11 +415,13 @@
+     /// - Returns: tunnel handle
+     private func startWireGuardBackend(wgConfig: String) throws -> Int32 {
+         guard let tunnelFileDescriptor = self.tunnelFileDescriptor else {
++            markForProviderReset()
+             throw WireGuardAdapterError.cannotLocateTunnelFileDescriptor
+         }
+ 
+         let handle = wgTurnOn(wgConfig, tunnelFileDescriptor)
+         if handle < 0 {
++            markForProviderReset()
+             throw WireGuardAdapterError.startWireGuardBackend(handle)
+         }
+         #if os(iOS)
+@@ -428,6 +461,7 @@
+     /// Helper method used by network path monitor.
+     /// - Parameter path: new network path
+     private func didReceivePathUpdate(path: Network.NWPath) {
++        guard !requiresProviderReset else { return }
+         self.logHandler(.verbose, "Network change detected with \(path.status) route and interface order \(path.availableInterfaces)")
+ 
+         #if os(macOS)
+@@ -441,7 +475,11 @@
+                 let (wgConfig, resolutionResults) = settingsGenerator.endpointUapiConfiguration()
+                 self.logEndpointResolutionResults(resolutionResults)
+ 
+-                wgSetConfig(handle, wgConfig)
++                do { try checkedSetConfig(handle: handle, configuration: wgConfig) }
++                catch {
++                    logHandler(.error, "Protocol update failed; provider reset required")
++                    return
++                }
+                 wgDisableSomeRoamingForBrokenMobileSemantics(handle)
+                 wgBumpSockets(handle)
+             } else {
