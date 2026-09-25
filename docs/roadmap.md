@@ -1,20 +1,23 @@
 # v0.1 开发路线图与任务拆分
 
 版本：Design Draft 1.0；2026-09-23。  
-当前状态（2026-09-25）：S0 工具/证据与 PolicyCore 已合入 main；S1-01 的 preflight / unsigned 已获用户报告成功（USER_REPORTED）；开发签名与加载暂停，LocalDev 源码已提供、Mac 验收待执行；S1-02 的 IPv4 纯逻辑通过，完整阶段仍 IN PROGRESS。S0 收尾与真实场景缺口不因合并取消。
+当前状态（2026-09-25）：S0 工具/证据与 PolicyCore 已合入 main；S1-01 preflight / unsigned 和旧 LocalDev 启动为 USER_REPORTED 成功。UI 修复、WireGuard 结构导入和 Keychain 事务已统一纳入 main，当前 LD-02B；新版 Mac 构建、GUI 与真实 Keychain 仍待验证。开发签名与扩展加载暂停，完整 S1 仍 IN PROGRESS；S0 收尾与真实场景缺口不因合并取消。
 总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。
 
 ## 当前执行队列（ADR-007，2026-09-25）
 
 用户已确认先推进无网络副作用的 LocalDev，开发签名不再阻塞配置、规则与界面开发。调序依据：[ADR-007](adr/ADR-007-localdev-before-signing.md)。这是工程调度变化，不是降低 S1 退出条件。
 
+用户明确授权直接推送 main，并确认之前三批包均未下载。后续以 main 为唯一日常更新入口，不再要求逐个应用补丁或 ZIP。代码与回归完成后再非强制更新分支；本地只需拉取并运行原 build.sh。最新整合与测试范围见 [本轮证据](evidence/localdev-main-integration.md)。
+
 | 任务 | 当前范围与状态 |
 | --- | --- |
-| LD-01 | 独立本地 App、草稿持久化、规则编辑、PolicyCore 预览、模拟状态；源码与纯逻辑测试已提供，Mac 构建/开窗未执行。见 [操作](localdev.md) / [证据](evidence/localdev-01.md) |
-| LD-02 / S1-03 | 下一步：WireGuard 解析、兼容性报告、凭据存储边界，再接基础设施/peer 检查 UI；不把草稿当可连接配置 |
-| LD-03 | 继续扩展连接取消、失败、重试与配置更新场景；首次真实 Managed 联调前恢复 S1-01 开发签名 |
+| LD-01 / LD-UI-01–04 | 旧版开窗 USER_REPORTED；单编辑事务、失败保存保留输入、退出保护与界面简化已入库，纯逻辑回归通过；新版 GUI 仍待验 |
+| LD-02A / S1-03 部分 | WireGuard 结构解析、兼容报告、配置提供的端点/DNS/接口/Peer 检查已入库；无 Endpoint 解析或真实网络探测 |
+| LD-02B / S1-03 部分 | 显式 Keychain 保存、读回、重导入、解除引用与清理恢复已入库；故障注入回归通过，真实 Security API 与授权行为待 Mac 合成样例验证 |
+| LD-03 | 下一步先稳定新版 Mac 构建与导入/凭据交互，再扩展配置编辑和连接生命周期；首次真实 Managed 联调前恢复开发签名 |
 
-已通过的 S1 preflight / unsigned 与 S0 单目标实验不要求重复；Developer ID、公证和 DMG 留在 S5。OpenVPN 解析/认证、DNS-derived 与 External 执行仍遵循各自阶段门槛。
+统一离线入口 `/bin/bash tools/localdev/test.sh`；不会启动 App、访问真实 Keychain 或修改网络。已通过的 S1 preflight / unsigned 与 S0 单目标实验不要求重复；Developer ID、公证和 DMG 留在 S5。OpenVPN 解析/认证、DNS-derived 与 External 执行仍遵循各自阶段门槛。
 
 ## 1. 执行规则
 
@@ -114,7 +117,7 @@
 
 一个任务完成需代码/文档一致、测试可重复、错误/权限/恢复路径覆盖、无秘密、依赖许可记录齐全、诊断可解释、未测项明确。影响系统网络的变更额外提供前后状态及撤销证据。
 
-新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：按上方队列验证 LD-01，继续 LD-02；签名只阻塞首次真实隧道联调；S0 未完成的收尾和场景/认证等价性独立保留，不要求重复已完成的单目标实验。不 Fork 整个参考应用，不以 LocalDev 界面完成宣告 S1–S5 通过。
+新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：从 main 更新 LD-02B，验证新版 Mac 构建与合成配置/Keychain 流程，再继续上方队列；签名只阻塞首次真实隧道联调。S0 未完成的收尾和场景/认证等价性独立保留，不要求重复已完成的单目标实验。不 Fork 整个参考应用，不以 LocalDev 界面完成宣告 S1–S5 通过。
 
 ## main 工作流与 S1-01 交付
 

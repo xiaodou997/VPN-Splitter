@@ -5,10 +5,13 @@ import PolicyCore
 public struct PolicyPreview: Sendable {
     public let plan: IPv4PolicyPlan
     public let profileID: UUID
+    public let constrainedPlan: ConstrainedIPv4PolicyPlan?
+    public var boundaryText: String { constrainedPlan == nil ? Self.boundary : WireGuardPlanning.boundary }
+    public var overrides: [CompiledIPv4Route] { constrainedPlan?.overrides ?? plan.overrides }
     public static let boundary = "仅规则意图预览；未检查基础设施/peer，未解析 DNS，未验证出口。IPv6 未覆盖，无 Kill Switch。"
 
     public static func compile(_ profile: ProfileDraft) throws -> Self {
-        try Workspace(profiles: [profile]).validate()
+        try Workspace(profiles: [profile], schemaVersion: profile.credential != nil ? 3 : (profile.wireGuard == nil ? 1 : 2)).validate()
         let rules = try profile.rules.map { rule -> PolicyRule in
             let match: RuleMatch
             if !rule.enabled {
@@ -31,16 +34,24 @@ public struct PolicyPreview: Sendable {
         let capabilities = profile.backend.capabilities
         let context = PlanContext(sessionID: UUID().uuidString, backendID: capabilities.backendID,
                                   generation: 0, networkEpoch: 0)
-        let plan = try IPv4PolicyCompiler.compile(
-            IPv4Policy(defaultAction: profile.defaultAction.policyAction, rules: rules),
-            capabilities: capabilities, context: context)
-        return Self(plan: plan, profileID: profile.id)
+        let policy = IPv4Policy(defaultAction: profile.defaultAction.policyAction, rules: rules)
+        let constrained = try profile.wireGuard.map { try WireGuardPlanning.compile(policy, metadata: $0, context: context) }
+        let plan = try constrained?.userIntent ?? IPv4PolicyCompiler.compile(policy, capabilities: capabilities, context: context)
+        return Self(plan: plan, profileID: profile.id, constrainedPlan: constrained)
     }
 
     public var text: String {
-        var lines = [Self.boundary, "", "默认：\(plan.defaultAction.rawValue)", "例外路由（未安装）："]
-        lines += plan.overrides.map { "\($0.cidr) → \($0.action.rawValue)" }
-        if plan.overrides.isEmpty { lines.append("无") }
+        var lines = [boundaryText, "", "默认：\(plan.defaultAction.rawValue)", "例外路由（未安装）："]
+        lines += overrides.map { "\($0.cidr) → \($0.action.rawValue)" }
+        if overrides.isEmpty { lines.append("无") }
+        if let constrainedPlan {
+            lines.append("\n默认策略的配置基础设施例外（不是用户规则改写）：")
+            for item in constrainedPlan.infrastructureEvaluations where !item.defaultExceptionCIDRs.isEmpty {
+                lines.append("\(item.requirement.id)：\(item.defaultExceptionCIDRs.map(\.description).joined(separator: ", ")) → \(item.requirement.role.requiredAction.rawValue)")
+            }
+            lines.append("\nVPN 区域的 Peer 分配（不证明可达）：")
+            lines += constrainedPlan.peerAssignments.map { "\($0.cidr) → \($0.peerID)" }
+        }
         lines.append("\n按列表顺序评估：")
         for (index, item) in plan.ruleEvaluations.enumerated() {
             let effect: String
@@ -67,11 +78,18 @@ public struct PolicyPreview: Sendable {
             let index = plan.ruleEvaluations.firstIndex { $0.ruleID == id }
             source = "规则 \((index ?? -1) + 1)"
         }
+        if let constrainedPlan {
+            let decision = constrainedPlan.decision(for: address)
+            let peer = decision.wireGuardPeerID.map { "；Peer：\($0)" } ?? ""
+            let infrastructure = decision.infrastructureIDs.isEmpty ? "" : "；配置约束：" + decision.infrastructureIDs.joined(separator: ", ")
+            return "用户规则预期 \(result.action.rawValue)；命中\(source)。配置约束后预期 \(decision.action.rawValue)\(peer)\(infrastructure)。仅配置提供的拓扑，未探测真实出口。"
+        }
         return "预期 \(result.action.rawValue)；命中\(source)。未发起连接探测。"
     }
 
     /// Never stringify arbitrary errors or user-supplied selectors into diagnostics.
     public static func errorText(_ error: any Error) -> String {
+        if let error = error as? WGImportError { return error.code.rawValue }
         if let error = error as? DraftError { return error.rawValue }
         if let error = error as? PolicyCompilationError {
             return error.diagnostics.map { "\($0.code.rawValue)：\($0.reason)" }.joined(separator: "\n")
@@ -121,7 +139,7 @@ public struct LocalSession: Sendable {
         if selectedID != id { selectedID = id; invalidate() }
     }
     public mutating func invalidate() { preview = nil; connection.cancel() }
-    public mutating func commit(_ next: Workspace, store: DraftStore) throws {
+    public mutating func commit(_ next: Workspace, store: any WorkspacePersistence) throws {
         try store.save(next)
         workspace = next
         if !workspace.profiles.contains(where: { $0.id == selectedID }) {

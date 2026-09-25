@@ -50,6 +50,10 @@ public struct ProfileDraft: Identifiable, Codable, Equatable, Sendable {
     public var backend: DraftBackend
     public var defaultAction: DraftAction
     public var rules: [DraftRule]
+    /// Opaque reference only; key bytes never belong in workspace JSON.
+    public var credential: CredentialReference? = nil
+    /// Non-secret structural projection, not a complete VPN configuration.
+    public var wireGuard: WGMetadata?
 
     public init(id: UUID = UUID(), name: String = "新配置草稿", backend: DraftBackend = .wireGuard,
                 defaultAction: DraftAction = .direct, rules: [DraftRule] = []) {
@@ -78,6 +82,7 @@ public enum DraftError: String, Error, Sendable {
 public struct Workspace: Codable, Equatable, Sendable {
     public var schemaVersion: Int
     public var profiles: [ProfileDraft]
+    public var pendingCredentialCleanup: [CredentialReference]? = nil
     public static let byteLimit = 2 * 1024 * 1024
 
     public init(profiles: [ProfileDraft] = [], schemaVersion: Int = 1) {
@@ -85,10 +90,16 @@ public struct Workspace: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        guard schemaVersion == 1 else { throw DraftError.unsupportedVersion }
+        guard (1...3).contains(schemaVersion) else { throw DraftError.unsupportedVersion }
+        try validateCredentials()
         guard profiles.count <= 100 else { throw DraftError.tooLarge }
         guard Set(profiles.map(\.id)).count == profiles.count else { throw DraftError.invalidDraft }
         for profile in profiles {
+            if let metadata = profile.wireGuard {
+                guard schemaVersion >= 2 else { throw DraftError.unsupportedVersion }
+                guard profile.backend == .wireGuard else { throw WGImportError(.backend) }
+                try metadata.validate()
+            }
             guard Self.singleLine(profile.name, limit: 160),
                   !profile.name.trimmingCharacters(in: .whitespaces).isEmpty,
                   Set(profile.rules.map(\.id)).count == profile.rules.count else { throw DraftError.invalidDraft }
@@ -104,9 +115,9 @@ public struct Workspace: Codable, Equatable, Sendable {
     }
 }
 
-/// Only explicitly modelled metadata is serialized. No raw .conf/.ovpn importer.
+/// Only explicitly modelled metadata is serialized; never raw configurations or credentials.
 /// Corrupt/future-version data is an error, never an automatic empty reset.
-public struct DraftStore: Sendable {
+public struct DraftStore: Sendable, WorkspacePersistence {
     public let directory: URL
     public var file: URL { directory.appendingPathComponent("workspace.json") }
     public init(directory: URL) { self.directory = directory }

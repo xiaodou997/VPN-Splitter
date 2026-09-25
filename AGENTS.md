@@ -4,13 +4,17 @@
 
 ## 当前工作流
 
+用户已明确授权直接修改并推送 main，且表示最近 UI、WireGuard、Keychain 三批更新包均未下载。交付统一为 main；不要要求用户下载或依次套历史包，也不要把包已生成当成用户已安装。每次从最新远端起点整合、执行可用回归、核对完整源码后再非强制更新 main；本地只需 git pull --ff-only 和原构建入口。最新证据见 docs/evidence/localdev-main-integration.md。
+
 用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
 ## 当前优先级：LocalDev
 
-用户已确认暂停开发签名，先做无网络副作用的配置/规则/诊断界面。先读 docs/adr/ADR-007-localdev-before-signing.md 和 docs/localdev.md；它们调整开发调度，不关闭 S0–S5 真实技术门槛。已有 S1 preflight / unsigned 为 USER_REPORTED 成功，不要求重做。新入口为 /bin/bash tools/localdev/build.sh run；现有 unsigned 产物仍不可安装。
+用户已确认暂停开发签名，先做无网络副作用的配置/规则/诊断界面。先读 docs/adr/ADR-007-localdev-before-signing.md 和 docs/localdev.md；它们调整开发调度，不关闭 S0–S5 真实技术门槛。已有 S1 preflight / unsigned 与旧版 LocalDev 开窗为 USER_REPORTED 成功，不要求重做，也不能作为 LD-02B 新版 GUI/Keychain 验收。入口为 /bin/bash tools/localdev/build.sh run；现有 unsigned 产物仍不可安装。
 
-LocalDev 独立工程在 apps/macos/LocalDev/，仅 ad-hoc 签名、无 NE entitlement/扩展；AppCore 复用 PolicyCore。使用 swift test --package-path Packages/AppCore -Xswiftc -warnings-as-errors，并以 -c release 重跑；合同测试 python3 -m unittest discover -s tests/localdev -v。当前仅策略草稿，不接受真实密钥，不把模拟状态或规划能力预设报告为真实连接/探测。新增导入前完成凭据边界，不向草稿 JSON 添加原始配置或凭据。第一轮真实隧道联调前恢复开发签名。
+LocalDev 独立工程在 apps/macos/LocalDev/，仅 ad-hoc 签名、无 NE entitlement/扩展；AppCore 复用 PolicyCore。当前 LD-02B 包含单编辑事务、WireGuard 结构导入及配置范围检查、显式本机 Keychain 适配和可重试清理；原生 SDK / Keychain / GUI 验证仍须证据。不把模拟或规划能力预设报告为真实连接/探测，不向普通 JSON、报告或日志添加密钥和原始配置。正式扩展共享和首次真实隧道前签名另验。
+
+统一离线入口 /bin/bash tools/localdev/test.sh：AppCore Debug/Release warnings-as-errors 与 tests/localdev 合同测试；不会打开程序、使用真实 Keychain 或修改网络。故障注入替身不能计作系统 Keychain 通过。先用 tests/fixtures/wireguard 合成夹具做 Mac 验证，再考虑真实配置。凭据准备阶段可能升级 workspace v3；不通过清空 JSON、手改版本、放宽 ACL 或删除锁文件解决失败。详见 ADR-008/009/010 与 docs/localdev-keychain.md。
 
 ## 已确定边界
 

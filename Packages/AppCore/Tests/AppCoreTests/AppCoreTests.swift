@@ -118,7 +118,7 @@ func unsupportedEnabledMatchersBlock(match: DraftMatch) {
     try withStore { store in
         let valid = Workspace(profiles: [sample()]); try store.save(valid)
         let before = try Data(contentsOf: store.file)
-        #expect(throws: DraftError.unsupportedVersion) { try store.save(Workspace(schemaVersion: 2)) }
+        #expect(throws: DraftError.unsupportedVersion) { try store.save(Workspace(schemaVersion: 4)) }
         #expect(try Data(contentsOf: store.file) == before)
     }
 }
@@ -135,7 +135,7 @@ func unsupportedEnabledMatchersBlock(match: DraftMatch) {
 @Test func futureSchemaIsNotSilentlyReset() throws {
     try withStore { store in
         try store.save(Workspace())
-        try Data(#"{"schemaVersion":2,"profiles":[]}"#.utf8).write(to: store.file)
+        try Data(#"{"schemaVersion":4,"profiles":[]}"#.utf8).write(to: store.file)
         #expect(throws: DraftError.unsupportedVersion) { try store.load() }
     }
 }
