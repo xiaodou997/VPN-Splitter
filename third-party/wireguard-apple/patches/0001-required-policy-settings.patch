@@ -1,0 +1,75 @@
+--- a/Sources/WireGuardKit/WireGuardAdapter.swift
++++ b/Sources/WireGuardKit/WireGuardAdapter.swift
+@@ -22,6 +22,9 @@
+     /// Failure to set network settings.
+     case setNetworkSettings(Error)
+ 
++    /// The caller must supply policy-derived settings; no AllowedIPs fallback.
++    case policyNetworkSettings(Error)
++
+     /// Failure to start WireGuard backend.
+     case startWireGuardBackend(Int32)
+ }
+@@ -49,6 +52,9 @@
+ 
+     /// Log handler closure.
+     private let logHandler: LogHandler
++
++    /// Mandatory for start, update and resume. Protocol configuration is unchanged.
++    private let networkSettingsProvider: (TunnelConfiguration) throws -> NEPacketTunnelNetworkSettings
+ 
+     /// Private queue used to synchronize access to `WireGuardAdapter` members.
+     private let workQueue = DispatchQueue(label: "WireGuardAdapterWorkQueue")
+@@ -129,9 +135,12 @@
+     /// - Parameter packetTunnelProvider: an instance of `NEPacketTunnelProvider`. Internally stored
+     ///   as a weak reference.
+     /// - Parameter logHandler: a log handler closure.
+-    public init(with packetTunnelProvider: NEPacketTunnelProvider, logHandler: @escaping LogHandler) {
++    public init(with packetTunnelProvider: NEPacketTunnelProvider,
++                networkSettingsProvider: @escaping (TunnelConfiguration) throws -> NEPacketTunnelNetworkSettings,
++                logHandler: @escaping LogHandler) {
+         self.packetTunnelProvider = packetTunnelProvider
+         self.logHandler = logHandler
++        self.networkSettingsProvider = networkSettingsProvider
+ 
+         setupLogHandler()
+     }
+@@ -189,7 +198,7 @@
+ 
+             do {
+                 let settingsGenerator = try self.makeSettingsGenerator(with: tunnelConfiguration)
+-                try self.setNetworkSettings(settingsGenerator.generateNetworkSettings())
++                try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
+ 
+                 let (wgConfig, resolutionResults) = settingsGenerator.uapiConfiguration()
+                 self.logEndpointResolutionResults(resolutionResults)
+@@ -255,7 +264,7 @@
+ 
+             do {
+                 let settingsGenerator = try self.makeSettingsGenerator(with: tunnelConfiguration)
+-                try self.setNetworkSettings(settingsGenerator.generateNetworkSettings())
++                try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
+ 
+                 switch self.state {
+                 case .started(let handle, _):
+@@ -311,6 +320,11 @@
+     ///   - networkSettings: an instance of type `NEPacketTunnelNetworkSettings`.
+     /// - Throws: an error of type `WireGuardAdapterError`.
+     /// - Returns: `PacketTunnelSettingsGenerator`.
++    private func policyNetworkSettings(_ generator: PacketTunnelSettingsGenerator) throws -> NEPacketTunnelNetworkSettings {
++        do { return try networkSettingsProvider(generator.tunnelConfiguration) }
++        catch { throw WireGuardAdapterError.policyNetworkSettings(error) }
++    }
++
+     private func setNetworkSettings(_ networkSettings: NEPacketTunnelNetworkSettings) throws {
+         var systemError: Error?
+         let condition = NSCondition()
+@@ -443,7 +457,7 @@
+             self.logHandler(.verbose, "Connectivity online, resuming backend.")
+ 
+             do {
+-                try self.setNetworkSettings(settingsGenerator.generateNetworkSettings())
++                try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
+ 
+                 let (wgConfig, resolutionResults) = settingsGenerator.uapiConfiguration()
+                 self.logEndpointResolutionResults(resolutionResults)

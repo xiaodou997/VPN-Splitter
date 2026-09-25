@@ -1,43 +1,43 @@
-# WireGuard 接入准备：WG-INT-01
+# WireGuard 接入准备：WG-INT-01 / WG-INT-02
 
-本批从界面/模拟开发转向实际 NetworkExtension 设置对象的生成。代码已在独立包提供，尚未接通协议核心和 Provider，不是已经可以连接 VPN。
+当前增加了 WG-INT-02 的**固定源码编译、强制策略入口补丁与 Swift 链接探针**；构建脚本和离线验证已提供，完整 Mac 构建链接仍待执行。不是可连接 VPN，也没有把核心接入正式 Provider。新版指南见 [核心构建](wireguard-engine-build.md)，结果见 [WG-INT-02 证据](evidence/wireguard-engine-02.md)。
 
-## 从 main 获取与验证
+## 从 main 获取
 
-只使用 main，不需要历史补丁或 ZIP。此批不改变 LocalDev 界面版本，顶部仍为 LD-03B；没有新增连接按钮。Git 拉取不访问凭据或迁移数据。
+不需要历史补丁或 ZIP，不要求运行中间版本。LocalDev 界面仍为 LD-03B，原有启动入口不变。新增核心构建入口：
 
 ```sh
 git switch main &&
 git pull --ff-only &&
+/bin/bash tools/wireguard/build.sh build --fetch
+```
+
+此命令会先检查 macOS 26+ / arm64、完整 Xcode / SDK 26+、Python 3.9+ 和本机已安装的 Go 1.26.8 或 1.27.1。`--fetch` 明确允许下载固定公开源码和 Go 模块；不自动安装 Go，不申请签名，不运行产物或改用户网络。没有 Go 时会提前提示 E_GO。详细失败与缓存行为见 [构建指南](wireguard-engine-build.md)。
+
+## 保留的 WG-INT-01 对象验证
+
+```sh
 /bin/bash tools/managed/test.sh
 ```
 
-这个新入口运行 ManagedSettings Debug/Release 和源码合同检查。macOS 还会编译 ManagedSettingsApple、执行四项原生对象测试，只分配对象，不安装到系统。无需 Team ID、profile、真实配置或 Keychain 授权。正常 LocalDev 启动仍使用原来的 tools/localdev/build.sh；不要求重复旧 S1 检查。
+该独立入口不需要 Go，也不下载 WireGuard。它只执行 ManagedSettings Debug/Release 与源码检查；macOS 还会编译 ManagedSettingsApple 并执行四项原生对象测试，不安装到系统。无需 Team ID、profile、真实配置或 Keychain 授权。没有收到本轮用户执行结果，不把新脚本交付算作原生对象测试已通过。
 
-成功输出包含 `schema=managed-settings-tests-v1`、`core=PASS`、`contracts=PASS`、`wireguard_engine=NOT_LINKED`、`network_settings=NOT_APPLIED`。`native_settings_objects` 在 Linux 为 NOT_RUN；在 Mac 全套成功后为 PASS。这一 PASS 只表示对象测试通过，不代表隧道、路由和出口通过。命令失败时即停止，不继续输出 PASS；不要上传整个 .local 或真实配置。
+## 网络设置层的职责
 
-## 已交付的代码
+`Packages/ManagedSettings/Sources/ManagedSettings` 把真实 PolicyCore 约束结果转换为设置草稿。协议 AllowedIPs 只参与一致性核对，不作为系统路由来源。例如 Peer 是 `0.0.0.0/0`、Include 规则只有 `10.9.0.0/16 → VPN`，includedRoutes 只取该 /16，不自动加入接口整个网段或默认 VPN 路由。
 
-`Packages/ManagedSettings/Sources/ManagedSettings` 将真实 PolicyCore 的约束结果转换为系统设置草稿。协议 AllowedIPs 只参与一致性核对，不成为路由来源。例如协议 Peer 是 `0.0.0.0/0`、规则只有 `10.9.0.0/16 → VPN`，Include 的 includedRoutes 只有该 /16，不变成全局 VPN，也不把接口所属整个 /24 自动加入 VPN。
+Bypass 使用 /0 加显式 DIRECT 排除集合。输入的端点、接口地址、Peer 范围和完整上下文必须与编译结果一致，构造前再次校验。没有任何 VPN 区域或缺失基础设施约束时拒绝，不生成部分通过结果。first-match 语义不变，实际系统优先级尚未验证。
 
-Bypass 使用 /0 加显式 DIRECT 排除集合。输入中的全部端点、接口地址保护都必须存在且无多余旧项；系统设置构造前再次核对完整输入。没有任何 VPN 区域时拒绝生成，缺失约束或超范围规则也不会生成“部分可用”结果。原规则顺序和 first-match 保持不变。
+`ManagedSettingsApple.PacketTunnelSettingsFactory.makeForInspection` 只分配真实 Apple SDK 设置对象，不接收 Provider 或调用系统应用 API。DNS 显式选择保留系统或 Bypass 默认隧道 DNS，Include 不自动接管全 DNS；不创建搜索后缀，不提供名称映射。类型与字段依据 [includedRoutes](https://developer.apple.com/documentation/networkextension/neipv4settings/includedroutes)、[excludedRoutes](https://developer.apple.com/documentation/networkextension/neipv4settings/excludedroutes)、[matchDomains](https://developer.apple.com/documentation/networkextension/nednssettings/matchdomains)。
 
-`ManagedSettingsApple.PacketTunnelSettingsFactory.makeForInspection` 实际创建 Apple SDK 对象，填充地址、掩码、包含/排除路由、显式 DNS 选择和 MTU。它不接受 Provider，也没有调用 setTunnelNetworkSettings。Apple 类型只出现在独立 macOS target，没有侵入纯 PolicyCore 或普通 LocalDev。
+## 核心构建层的职责
 
-DNS 显式区分“不设置本隧道 DNS，保留系统选择”与“Bypass 的默认隧道 DNS”。不从导入字段自动推断隐私选择，不创建搜索后缀，不提供域名映射或查询；Include 的默认全 DNS 被拒绝。引用：[Apple includedRoutes](https://developer.apple.com/documentation/networkextension/neipv4settings/includedroutes)、[excludedRoutes](https://developer.apple.com/documentation/networkextension/neipv4settings/excludedroutes)、[matchDomains](https://developer.apple.com/documentation/networkextension/nednssettings/matchdomains)。对象字段与路由表示已可测试，系统实际优先级和 resolver 行为仍未验证。
+WG-INT-02 使用独立编译候选锁、完整源码树和逐文件哈希验证，保留对应许可证。Apple bridge 使用已审查 Apple revision，Go 核心固定到官方 2026-05-22 revision，不继承旧 2023 Go 模块版本，也不运行修改 GOROOT 的上游 Makefile。模块校验不代表漏洞与完整传递许可审查通过。
 
-## 固定的上游审查基线
+Adapter 补丁强制 start/update/resume 提供策略设置工厂，缺失或抛错时没有上游路由回退；协议 UAPI 不变。探针仅用于类型检查与链接，函数不被执行，也不是可直接用于运行的配置绑定。详细边界见 [ADR-014](adr/ADR-014-wireguard-build-only-candidate.md)。
 
-`third-party/wireguard-apple/reference.json` 固定官方 revision `2fec12a6e1f6e3460b6ee483aa00ad29cddadab1` 和五个源文件 Git blob。保留对应 MIT 许可副本；没有复制协议源码、下载依赖或接入新的 SwiftPM/Go 构建依赖。此旧源码基线的 Go 依赖版本只是记录，不推荐直接用于发行；完整依赖、许可证、安全与现代工具链兼容性须另审查。
+## 真实运行前仍要完成
 
-当前上游 [Package.swift](https://github.com/WireGuard/wireguard-apple/blob/2fec12a6e1f6e3460b6ee483aa00ad29cddadab1/Package.swift) 依赖 wg-go 静态库，[集成文档](https://github.com/WireGuard/wireguard-apple/tree/2fec12a6e1f6e3460b6ee483aa00ad29cddadab1#wireguardkit-integration) 要求单独构建 Go bridge，不能把 Swift package 解析成功当成协议核心构建完成。
+Mac 原生编译/链接、模块安全与许可审查、设置超时/迟到回调和部分生效恢复、协议返回值与资源清理、utun 身份、凭据交付、日志和并发保护、实时上下文一致性仍需完成。上游的设置超时后继续和 update 忽略返回值**不在本轮补丁的修复范围内**，不能拿构建候选去连接 VPN。
 
-源码审查发现：[WireGuardAdapter.swift](https://github.com/WireGuard/wireguard-apple/blob/2fec12a6e1f6e3460b6ee483aa00ad29cddadab1/Sources/WireGuardKit/WireGuardAdapter.swift) 在网络设置等待 5 秒未完成时仍继续，在 update 路径未检查 wgSetConfig 返回码；macOS 切网只调用 wgBumpSockets。它还扫描 utun 描述符并输出端点解析日志。这些行为不能直接继承为“设置成功、身份正确、恢复完成”的证据。
-
-## 接下来要打通的部分
-
-1. 构建经过版本、许可证与安全审查的 WireGuardKit/Go bridge；在 start、update 和 restart 接入必选的策略设置生成入口，不允许回落到 AllowedIPs 默认路由生成器。
-2. 处理设置超时、协议更新失败、迟到回调和部分设置已生效的恢复；绑定正确 utun、提供受控凭据交付及日志过滤，不枚举或输出密钥。
-3. 本地 unsigned 编译通过后，恢复开发签名进行首次真实 Provider/WireGuard 联调；随后验证 Include/Bypass 双出口、DNS、IPv6 提示、失败与撤销。现有 Provider 仍保留故意返回 1001 的行为。
-
-以上都是未完成门槛，不会因本批对象工厂和离线测试关闭。现有 Keychain 原生合成验收也仍需独立证据。本批不新增模拟场景，不改变已经确认的界面布局。
+现有 Provider 继续有意返回 1001，LocalDev 没有链接协议核心。首次受控 Managed 联调前再恢复开发签名和系统授权，之后验证 Include/Bypass 实际出口、DNS、IPv6 提示、失败与撤销。已有 Keychain 合成验收也仍需独立证据。源码撤回用后继提交，不重置工作区、Keychain、锁文件或原 .conf。

@@ -1,0 +1,56 @@
+# SPDX-License-Identifier: MIT
+"""Exact-revision build-only patch. It does not activate a provider or run code."""
+from __future__ import annotations
+import hashlib
+
+ADAPTER_BLOB = "f7be19b15f5cbe39fd0e6496cdf0b2d426d83b6b"
+PATCHED_ADAPTER_BLOB = "ecce2a45f1136eab99ebfd423577de2ccce543f7"
+
+
+def git_blob(data: bytes) -> str:
+    return hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+
+
+def transform_adapter(text: str) -> str:
+    """Bounded contextual replacements; no fuzzy patching or default policy fallback."""
+    edits = [
+        ("    case setNetworkSettings(Error)\n",
+         "    case setNetworkSettings(Error)\n\n"
+         "    /// The caller must supply policy-derived settings; no AllowedIPs fallback.\n"
+         "    case policyNetworkSettings(Error)\n", 1),
+        ("    private let logHandler: LogHandler\n",
+         "    private let logHandler: LogHandler\n\n"
+         "    /// Mandatory for start, update and resume. Protocol configuration is unchanged.\n"
+         "    private let networkSettingsProvider: (TunnelConfiguration) throws -> NEPacketTunnelNetworkSettings\n", 1),
+        ("    public init(with packetTunnelProvider: NEPacketTunnelProvider, logHandler: @escaping LogHandler) {\n",
+         "    public init(with packetTunnelProvider: NEPacketTunnelProvider,\n"
+         "                networkSettingsProvider: @escaping (TunnelConfiguration) throws -> NEPacketTunnelNetworkSettings,\n"
+         "                logHandler: @escaping LogHandler) {\n", 1),
+        ("        self.logHandler = logHandler\n",
+         "        self.logHandler = logHandler\n"
+         "        self.networkSettingsProvider = networkSettingsProvider\n", 1),
+        ("try self.setNetworkSettings(settingsGenerator.generateNetworkSettings())",
+         "try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))", 3),
+        ("    private func setNetworkSettings(_ networkSettings: NEPacketTunnelNetworkSettings) throws {\n",
+         "    private func policyNetworkSettings(_ generator: PacketTunnelSettingsGenerator) throws -> NEPacketTunnelNetworkSettings {\n"
+         "        do { return try networkSettingsProvider(generator.tunnelConfiguration) }\n"
+         "        catch { throw WireGuardAdapterError.policyNetworkSettings(error) }\n"
+         "    }\n\n"
+         "    private func setNetworkSettings(_ networkSettings: NEPacketTunnelNetworkSettings) throws {\n", 1),
+    ]
+    for before, after, count in edits:
+        if text.count(before) != count:
+            raise ValueError("E_WG_PATCH_CONTEXT")
+        text = text.replace(before, after)
+    if ".generateNetworkSettings()" in text:
+        raise ValueError("E_WG_POLICY_FALLBACK")
+    return text
+
+
+def patch_adapter(data: bytes) -> bytes:
+    if git_blob(data) != ADAPTER_BLOB:
+        raise ValueError("E_WG_UPSTREAM_ADAPTER_CHANGED")
+    result = transform_adapter(data.decode("utf-8")).encode("utf-8")
+    if git_blob(result) != PATCHED_ADAPTER_BLOB:
+        raise ValueError("E_WG_PATCH_RESULT_CHANGED")
+    return result
