@@ -242,31 +242,36 @@ def tree_files(listing: str) -> dict[str, str]:
 
 def create_probe(probe: Path, root: Path) -> None:
     integration = read_ordinary(root, "integrations/wireguard/ManagedWireGuardAssembly.swift")
+    session = read_ordinary(root, "integrations/wireguard/ManagedWireGuardSession.swift")
     probe.mkdir(mode=0o700)
     # JSON escaping is valid for Swift string literals for ordinary filesystem paths.
     managed = json.dumps(str(root / "Packages/ManagedSettings"), ensure_ascii=False)
     policy = json.dumps(str(root / "Packages/PolicyCore"), ensure_ascii=False)
+    controller = json.dumps(str(root / "Packages/ProviderSession"), ensure_ascii=False)
     manifest = '''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(
     name: "WGLinkProbe", platforms: [.macOS("26.0")],
     dependencies: [.package(path: "../wireguard-apple"), .package(path: MANAGED_PATH),
-                   .package(path: POLICY_PATH)],
+                   .package(path: POLICY_PATH), .package(path: CONTROLLER_PATH)],
     targets: [.executableTarget(name: "WGLinkProbe", dependencies: [
         .product(name: "WireGuardKit", package: "wireguard-apple"),
         .product(name: "ManagedSettings", package: "ManagedSettings"),
         .product(name: "ManagedSettingsApple", package: "ManagedSettings"),
-        .product(name: "PolicyCore", package: "PolicyCore")
+        .product(name: "PolicyCore", package: "PolicyCore"),
+        .product(name: "ProviderSession", package: "ProviderSession")
     ], linkerSettings: [.linkedLibrary("resolv"), .linkedFramework("Security"),
                          .linkedFramework("CoreFoundation")])],
     swiftLanguageModes: [.v6]
 )
-'''.replace("MANAGED_PATH", managed).replace("POLICY_PATH", policy)
+'''.replace("MANAGED_PATH", managed).replace("POLICY_PATH", policy).replace("CONTROLLER_PATH", controller)
     (probe / "Package.swift").write_text(manifest)
     sources = probe / "Sources/WGLinkProbe"; sources.mkdir(parents=True, mode=0o700)
     shutil.copyfile(root / "tools/wireguard/Probe.swift", sources / "main.swift")
     with (sources / "ManagedWireGuardAssembly.swift").open("xb") as destination:
         destination.write(integration)
+    with (sources / "ManagedWireGuardSession.swift").open("xb") as destination:
+        destination.write(session)
 
 
 def require_symbols(text: str) -> None:

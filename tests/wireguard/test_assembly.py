@@ -38,7 +38,7 @@ class AssemblyStagingTests(unittest.TestCase):
             files = target / 'Sources/WGLinkProbe'
             self.assertEqual((files / 'ManagedWireGuardAssembly.swift').read_bytes(), (ROOT / INTEGRATION).read_bytes())
             self.assertEqual((files / 'main.swift').read_bytes(), (ROOT / 'tools/wireguard/Probe.swift').read_bytes())
-            self.assertEqual({p.name for p in files.iterdir()}, {'main.swift', 'ManagedWireGuardAssembly.swift'})
+            self.assertEqual({p.name for p in files.iterdir()}, {'main.swift', 'ManagedWireGuardAssembly.swift', 'ManagedWireGuardSession.swift'})
 
     def test_new_import_has_an_explicit_local_package_dependency(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -90,7 +90,7 @@ class AssemblyStagingTests(unittest.TestCase):
             description = json.loads(result.stdout)
             self.assertEqual(description['toolsVersion']['_version'], '6.0.0')
             self.assertEqual([p['platformName'] for p in description['platforms']], ['macos'])
-            self.assertEqual(len(description['dependencies']), 3)
+            self.assertEqual(len(description['dependencies']), 4)
             self.assertEqual([t['name'] for t in description['targets']], ['WGLinkProbe'])
             self.assertFalse((target / 'libwg-go.a').exists())
 

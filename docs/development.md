@@ -1,12 +1,13 @@
 # 统一开发入口与当前开发状态
 
-当前为 WG-INT-06；从 `main` 更新，不需要历史补丁或 ZIP。
+当前为 WG-INT-07；从 `main` 更新，不需要历史补丁或 ZIP。
 **48eee07 的 Mac 原生编译链接已获用户报告通过。** 详见[独立记录](evidence/wireguard-native-user-result.md)。
 这不是运行结果，也不能代替后续代码的原生验证；无需重复证明同一提交的同一结果。
 
 当前继续开发配置与规则到真实后端的连接路径，不是只剩测试或签名。
-本批新增[配置/分流/Adapter 组装](wireguard-assembly.md)，尚未将工作区凭据、
-可信描述符和正式 Provider 连通。LocalDev 仍是 LD-03B，不接管网络。
+本批新增[Provider 会话控制与一次性配置交付](wireguard-session.md)，将已组装 Adapter 的
+start/stop 接入可测试控制器。生产跨进程凭据读取、可信描述符与正式 Provider 尚未连通。
+LocalDev 仍是 LD-03B，不接管网络。
 OpenVPN 和应用内 External 后端尚未实际接入。真实握手、双出口、DNS 和撤销仍待验。
 
 ## 日常只记 dev.sh
@@ -17,7 +18,7 @@ OpenVPN 和应用内 External 后端尚未实际接入。真实握手、双出�
 | `/bin/bash dev.sh doctor engine` | 汇总引擎构建环境缺项；Go 是必需项，不安装工具 |
 | `/bin/bash dev.sh run` | 原 LocalDev 构建/打开；不要求 Python 或 Go，不建立隧道 |
 | `/bin/bash dev.sh test` | 原 AppCore/LocalDev 离线回归，需要 Python/Swift，不需要 Go |
-| `/bin/bash dev.sh engine-test` | WireGuardSupport 和 Python 构建/入口回归；不执行 ManagedSettings/Go 测试，不需要 Go |
+| `/bin/bash dev.sh engine-test` | WireGuardSupport、ProviderSession 和 Python 构建/入口回归；不执行 ManagedSettings/Go 测试，不需要 Go |
 | `/bin/bash dev.sh engine --fetch` | 环境检查、固定公开源码下载、Go 生命周期测试、模块下载、原生编译链接；不运行 VPN 产物 |
 | `/bin/bash dev.sh engine` | 同上但只使用缓存；缺缓存拒绝，不自动添加 --fetch |
 
@@ -65,4 +66,4 @@ Go 不可用不阻断 `dev.sh run`。已安装但找不到时先检查 PATH 或�
 
 本轮不改工作区/凭据格式、原 .conf、UI、正式 Provider、Go 核心或已有补丁链。
 源码回撤用正常后继提交，不改写历史。新测试和未测项见
-[WG-INT-06 证据](evidence/wireguard-assembly-06.md)与[ADR-018](adr/ADR-018-wireguard-plan-assembly.md)。
+[WG-INT-07 证据](evidence/wireguard-session-07.md)与[ADR-019](adr/ADR-019-provider-session-control.md)。

@@ -3,6 +3,7 @@ import ManagedSettings
 import ManagedSettingsApple
 import NetworkExtension
 import PolicyCore
+import ProviderSession
 import WireGuardKit
 
 // Compile-time API probe, never called. Live callers must establish that the
@@ -38,6 +39,18 @@ func checkAssembledPolicySignature(provider: NEPacketTunnelProvider,
     try ManagedWireGuardAssembly.prepareForIntegration(provider: provider, configuration: configuration,
         policy: policy, underlay: underlay, dnsSelection: dns, revision: revision,
         currentRevision: currentRevision, descriptor: descriptor)
+}
+
+// Type-check the real session/Adapter call path without loading credentials or starting it.
+@MainActor
+func checkProviderSessionSignature(provider: NEPacketTunnelProvider, identity: ProviderSessionIdentity,
+                                   policy: IPv4Policy, underlay: IPv4ConstraintInput, dns: WireGuardDNSSelection,
+                                   current: @escaping @Sendable () -> ProviderSessionIdentity?,
+                                   descriptor: @escaping () throws -> SplitterTunnelDescriptorLease,
+                                   timeouts: ProviderSessionTimeouts) -> ManagedWireGuardSession {
+    ManagedWireGuardSession(provider: provider, identity: identity, policy: policy,
+        underlay: underlay, dnsSelection: dns, currentIdentity: current, descriptor: descriptor,
+        timeouts: timeouts, event: { _ in })
 }
 
 // The build script never runs this executable. No descriptor is discovered here.
