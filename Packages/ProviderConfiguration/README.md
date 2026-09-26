@@ -1,24 +1,38 @@
-# ProviderConfiguration / WG-INT-08A
+# ProviderConfiguration / WG-INT-08A + 08B
 
-Strict public launch metadata for the formal App and PacketTunnelProvider. Foundation
-only; no keys, raw WireGuard configuration, filesystem, Keychain, DNS or network I/O.
+`ManagedLaunch` is the strict, Foundation-only public metadata boundary shared by
+the formal App and PacketTunnelProvider. Its unchanged property-list schema carries
+profile/credential/policy identifiers, generation, scope and attempt, not secrets.
+A persistent reference is metadata, not authorization, freshness or tunnel ownership.
+The scope tag does not validate the actual WireGuard configuration or policy.
 
-The property-list schema correlates profile ID, credential ID, policy revision,
-generation, first-milestone scope and app attempt. The persistent reference travels
-only in `NETunnelProviderProtocol.passwordReference`. Its bytes are not a credential
-and possession is not authorization. `CheckedManagedLaunch` is deliberately named
-metadata-only and redacts reflection/debug output.
+WG-INT-08B adds the containing App's private credential source:
 
-This module rejects unknown keys/types/versions, non-canonical IDs/generations,
-missing/oversized references, wrong Provider and mixed profile revisions. It does
-NOT prove signed sender identity, latest persisted generation, Keychain ownership,
-anti-replay across processes, or trusted utun ownership. An authorized credential
-source must validate the complete record before WG-INT-07 configuration delivery.
-The v1 scope tag declares the intended single-peer IPv4 Include contract; it does
-not validate the absent configuration's peer count, addresses or routes.
+- `ManagedCredentialVault` is an actor for immutable prepare/read-back/load/revoke
+  and exact-receipt cleanup retry. Configuration and policy archives share one bound
+  Keychain record. `load(for:selected:)` checks WG-INT-08A metadata against the selected
+  App handle before reading. It does not establish that selection as the latest one.
+- `ManagedAppKeychain` is a macOS-only Security implementation, created explicitly
+  with `forContainingApp(expectedBundleIdentifier:)`. It uses data-protection Keychain,
+  a dedicated service, non-synchronizable unlocked/device-only items and noninteractive
+  authentication context. No shared access group, file-based fallback, broad deletion,
+  silent overwrite or LocalDev permission change is provided.
+- Secret values and references have redacted descriptions/reflection. Materials are
+  bounded, not semantically validated or guaranteed zeroized. Cleanup tickets are
+  in-memory only; durable crash/orphan reconciliation remains unimplemented.
 
-The formal Provider uses the real boundary, but still refuses execution after a
-valid request because credential resolution and the native runtime are not wired.
-No new Connect UI is exposed and LocalDev stays network-free.
+This is APP-LOCAL, not a system-extension credential reader or an authenticated IPC
+format. Apple distinguishes user-context data-protection Keychain from daemon access;
+see [ADR-WG-INT-08B](../../docs/adr/ADR-WG-INT-08B-app-credential-vault.md).
+The containing App's actual entitlements/signing and native Keychain behavior still
+need Mac verification. A bundle ID/UID comparison is not cryptographic authentication.
 
-Run `/bin/bash dev.sh provider-test`. This is not an Apple SDK or live VPN test.
+The formal GUI does not yet invoke the vault. The Provider still rejects valid
+metadata with 2001 because credential delivery and the native runtime are not wired.
+LocalDev remains unchanged. Preparing/revoking a credential does not create/stop a
+VPN, publish a current selection, or prove system route/DNS restoration.
+
+Run `/bin/bash dev.sh provider-test`. Tests never invoke real Keychain operations,
+save VPN preferences or change network settings. Native query-construction tests
+compile only on macOS; they are not Security authorization or live VPN acceptance.
+Execution counts and remaining gaps: [08B evidence](../../docs/evidence/wg-int-08b-app-credential-vault.md).
