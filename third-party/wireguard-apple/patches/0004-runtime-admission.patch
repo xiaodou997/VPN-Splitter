@@ -1,0 +1,319 @@
+--- a/Sources/WireGuardKit/WireGuardAdapter.swift
++++ b/Sources/WireGuardKit/WireGuardAdapter.swift
+@@ -29,6 +29,7 @@
+     case networkSettingsTimedOut
+     case providerResetRequired
+     case updateWireGuardBackend(Int64)
++    case runtimeAdmission
+ 
+     /// Failure to start WireGuard backend.
+     case startWireGuardBackend(Int32)
+@@ -68,39 +69,10 @@
+     private var state: State = .stopped
+     // Never cleared on this instance; timeout is not an OS cancellation.
+     private var requiresProviderReset = false
+-
+-    /// Tunnel device file descriptor.
+-    private var tunnelFileDescriptor: Int32? {
+-        var ctlInfo = ctl_info()
+-        withUnsafeMutablePointer(to: &ctlInfo.ctl_name) {
+-            $0.withMemoryRebound(to: CChar.self, capacity: MemoryLayout.size(ofValue: $0.pointee)) {
+-                _ = strcpy($0, "com.apple.net.utun_control")
+-            }
+-        }
+-        for fd: Int32 in 0...1024 {
+-            var addr = sockaddr_ctl()
+-            var ret: Int32 = -1
+-            var len = socklen_t(MemoryLayout.size(ofValue: addr))
+-            withUnsafeMutablePointer(to: &addr) {
+-                $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+-                    ret = getpeername(fd, $0, &len)
+-                }
+-            }
+-            if ret != 0 || addr.sc_family != AF_SYSTEM {
+-                continue
+-            }
+-            if ctlInfo.ctl_id == 0 {
+-                ret = ioctl(fd, CTLIOCGINFO, &ctlInfo)
+-                if ret != 0 {
+-                    continue
+-                }
+-            }
+-            if addr.sc_id == ctlInfo.ctl_id {
+-                return fd
+-            }
+-        }
+-        return nil
+-    }
++    private let runtimeBinding: SplitterWireGuardBinding
++    private let tunnelDescriptorProvider: () throws -> SplitterTunnelDescriptorLease
++    private let interfaceLock = NSLock()
++    private var boundInterfaceName: String?
+ 
+     /// Returns a WireGuard version.
+     class var backendVersion: String {
+@@ -110,30 +82,14 @@
+         return str
+     }
+ 
+-    /// Returns the tunnel device interface name, or nil on error.
+-    /// - Returns: String.
++    /// Last explicitly bound interface, not the first utun found in this process.
+     public var interfaceName: String? {
+-        guard let tunnelFileDescriptor = self.tunnelFileDescriptor else { return nil }
+-
+-        var buffer = [UInt8](repeating: 0, count: Int(IFNAMSIZ))
+-
+-        return buffer.withUnsafeMutableBufferPointer { mutableBufferPointer in
+-            guard let baseAddress = mutableBufferPointer.baseAddress else { return nil }
+-
+-            var ifnameSize = socklen_t(IFNAMSIZ)
+-            let result = getsockopt(
+-                tunnelFileDescriptor,
+-                2 /* SYSPROTO_CONTROL */,
+-                2 /* UTUN_OPT_IFNAME */,
+-                baseAddress,
+-                &ifnameSize)
+-
+-            if result == 0 {
+-                return String(cString: baseAddress)
+-            } else {
+-                return nil
+-            }
+-        }
++        interfaceLock.lock(); defer { interfaceLock.unlock() }
++        return boundInterfaceName
++    }
++
++    private func recordInterface(_ name: String?) {
++        interfaceLock.lock(); boundInterfaceName = name; interfaceLock.unlock()
+     }
+ 
+     // MARK: - Initialization
+@@ -143,16 +99,21 @@
+     ///   as a weak reference.
+     /// - Parameter logHandler: a log handler closure.
+     public init(with packetTunnelProvider: NEPacketTunnelProvider,
++                runtimeBinding: SplitterWireGuardBinding,
++                tunnelDescriptorProvider: @escaping () throws -> SplitterTunnelDescriptorLease,
+                 networkSettingsProvider: @escaping (TunnelConfiguration) throws -> NEPacketTunnelNetworkSettings,
+                 logHandler: @escaping LogHandler) {
+         self.packetTunnelProvider = packetTunnelProvider
+         self.logHandler = logHandler
+         self.networkSettingsProvider = networkSettingsProvider
++        self.runtimeBinding = runtimeBinding
++        self.tunnelDescriptorProvider = tunnelDescriptorProvider
+ 
+         setupLogHandler()
+     }
+ 
+     deinit {
++        runtimeBinding.invalidate()
+         // Force remove logger to make sure that no further calls to the instance of this class
+         // can happen after deallocation.
+         wgSetLogger(nil, nil)
+@@ -210,6 +171,7 @@
+             do {
+                 let settingsGenerator = try self.makeSettingsGenerator(with: tunnelConfiguration)
+                 try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
++                try self.checkAdmission()
+ 
+                 let (wgConfig, resolutionResults) = settingsGenerator.uapiConfiguration()
+                 self.logEndpointResolutionResults(resolutionResults)
+@@ -253,6 +215,8 @@
+             self.networkMonitor = nil
+ 
+             self.state = .stopped
++            self.runtimeBinding.invalidate()
++            self.recordInterface(nil)
+ 
+             completionHandler(nil)
+         }
+@@ -284,6 +248,7 @@
+             do {
+                 let settingsGenerator = try self.makeSettingsGenerator(with: tunnelConfiguration)
+                 try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
++                try self.checkAdmission()
+ 
+                 switch self.state {
+                 case .started(let handle, _):
+@@ -339,8 +304,20 @@
+     /// - Throws: an error of type `WireGuardAdapterError`.
+     /// - Returns: `PacketTunnelSettingsGenerator`.
+     private func policyNetworkSettings(_ generator: PacketTunnelSettingsGenerator) throws -> NEPacketTunnelNetworkSettings {
+-        do { return try networkSettingsProvider(generator.tunnelConfiguration) }
+-        catch { throw WireGuardAdapterError.policyNetworkSettings(error) }
++        do {
++            let request = try runtimeBinding.checkedCopy(matching: generator.tunnelConfiguration)
++            let settings = try networkSettingsProvider(request)
++            _ = try runtimeBinding.checkedCopy(matching: request)
++            return settings
++        } catch {
++            markForProviderReset()
++            throw WireGuardAdapterError.runtimeAdmission
++        }
++    }
++
++    private func checkAdmission() throws {
++        do { try runtimeBinding.checkCurrent() }
++        catch { markForProviderReset(); throw WireGuardAdapterError.runtimeAdmission }
+     }
+ 
+     private func setNetworkSettings(_ networkSettings: NEPacketTunnelNetworkSettings) throws {
+@@ -368,6 +345,8 @@
+     // The future Provider controller must terminate the session and observe teardown.
+     private func markForProviderReset() {
+         requiresProviderReset = true
++        runtimeBinding.invalidate()
++        recordInterface(nil)
+         networkMonitor?.cancel()
+         networkMonitor = nil
+         if case .started(let handle, _) = state { wgTurnOff(handle) }
+@@ -375,11 +354,13 @@
+     }
+ 
+     private func checkedSetConfig(handle: Int32, configuration: String) throws {
++        try checkAdmission()
+         let result = wgSetConfig(handle, configuration)
+         guard result == 0 else {
+             markForProviderReset()
+             throw WireGuardAdapterError.updateWireGuardBackend(result)
+         }
++        try checkAdmission()
+     }
+ 
+     /// Resolve peers of the given tunnel configuration.
+@@ -414,20 +395,32 @@
+     /// - Throws: an error of type `WireGuardAdapterError`
+     /// - Returns: tunnel handle
+     private func startWireGuardBackend(wgConfig: String) throws -> Int32 {
+-        guard let tunnelFileDescriptor = self.tunnelFileDescriptor else {
+-            markForProviderReset()
+-            throw WireGuardAdapterError.cannotLocateTunnelFileDescriptor
+-        }
+-
+-        let handle = wgTurnOn(wgConfig, tunnelFileDescriptor)
+-        if handle < 0 {
+-            markForProviderReset()
+-            throw WireGuardAdapterError.startWireGuardBackend(handle)
+-        }
+-        #if os(iOS)
+-        wgDisableSomeRoamingForBrokenMobileSemantics(handle)
+-        #endif
+-        return handle
++        do {
++            try checkAdmission()
++            let lease = try tunnelDescriptorProvider()
++            defer { lease.close() }
++            let handle = try lease.withFileDescriptor(for: runtimeBinding.providerInstance) { descriptor in
++                try checkAdmission()
++                let started = wgTurnOn(wgConfig, descriptor)
++                guard started >= 0 else { throw WireGuardAdapterError.startWireGuardBackend(started) }
++                do { try runtimeBinding.checkCurrent() }
++                catch {
++                    // Not yet in state: release the newly returned handle explicitly.
++                    wgTurnOff(started)
++                    throw WireGuardAdapterError.runtimeAdmission
++                }
++                return started
++            }
++            recordInterface(lease.interfaceName)
++            #if os(iOS)
++            wgDisableSomeRoamingForBrokenMobileSemantics(handle)
++            #endif
++            return handle
++        } catch {
++            markForProviderReset()
++            if let error = error as? WireGuardAdapterError { throw error }
++            throw WireGuardAdapterError.runtimeAdmission
++        }
+     }
+ 
+     /// Resolves the hostnames in the given tunnel configuration and return settings generator.
+@@ -435,10 +428,16 @@
+     /// - Throws: an error of type `WireGuardAdapterError`.
+     /// - Returns: an instance of type `PacketTunnelSettingsGenerator`.
+     private func makeSettingsGenerator(with tunnelConfiguration: TunnelConfiguration) throws -> PacketTunnelSettingsGenerator {
+-        return PacketTunnelSettingsGenerator(
+-            tunnelConfiguration: tunnelConfiguration,
+-            resolvedEndpoints: try self.resolvePeers(for: tunnelConfiguration)
+-        )
++        do {
++            let approved = try runtimeBinding.checkedCopy(matching: tunnelConfiguration)
++            let endpoints = try resolvePeers(for: approved)
++            try checkAdmission()
++            return PacketTunnelSettingsGenerator(tunnelConfiguration: approved, resolvedEndpoints: endpoints)
++        } catch {
++            markForProviderReset()
++            if let error = error as? WireGuardAdapterError { throw error }
++            throw WireGuardAdapterError.runtimeAdmission
++        }
+     }
+ 
+     /// Log DNS resolution results.
+@@ -462,6 +461,7 @@
+     /// - Parameter path: new network path
+     private func didReceivePathUpdate(path: Network.NWPath) {
+         guard !requiresProviderReset else { return }
++        do { try checkAdmission() } catch { return }
+         self.logHandler(.verbose, "Network change detected with \(path.status) route and interface order \(path.availableInterfaces)")
+ 
+         #if os(macOS)
+@@ -496,6 +496,7 @@
+ 
+             do {
+                 try self.setNetworkSettings(self.policyNetworkSettings(settingsGenerator))
++                try self.checkAdmission()
+ 
+                 let (wgConfig, resolutionResults) = settingsGenerator.uapiConfiguration()
+                 self.logEndpointResolutionResults(resolutionResults)
+@@ -537,3 +538,49 @@
+         }
+     }
+ }
++
++// VPN-Splitter: one immutable protocol snapshot per Provider session.
++// Not an OS ownership proof. The currentRevision closure must observe the live
++// controller, be thread-safe and invalidate this binding on every state change.
++public final class SplitterWireGuardBinding: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
++    private let expectedInterface: InterfaceConfiguration
++    private let expectedPeers: [PeerConfiguration]
++    private let gate: SplitterRevisionGate
++    private let currentRevision: () -> SplitterRuntimeRevision?
++    fileprivate var providerInstance: UUID { gate.expected.providerInstance }
++
++    public init(configuration: TunnelConfiguration, revision: SplitterRuntimeRevision,
++                currentRevision: @escaping () -> SplitterRuntimeRevision?) {
++        expectedInterface = configuration.interface
++        expectedPeers = configuration.peers
++        gate = SplitterRevisionGate(expected: revision)
++        self.currentRevision = currentRevision
++    }
++
++    public func invalidate() { gate.invalidate() }
++    fileprivate func checkCurrent() throws { try gate.check(current: currentRevision()) }
++
++    // Do not use TunnelConfiguration ==: upstream treats peers and AllowedIPs
++    // as sets. Policy binding preserves their order and all original key fields.
++    fileprivate func checkedCopy(matching request: TunnelConfiguration) throws -> TunnelConfiguration {
++        try checkCurrent()
++        guard expectedInterface == request.interface,
++              expectedInterface.addresses == request.interface.addresses,
++              expectedPeers.count == request.peers.count else {
++            invalidate(); throw SplitterAdmissionError.configurationChanged
++        }
++        for (expected, current) in zip(expectedPeers, request.peers) {
++            guard expected == current, expected.allowedIPs == current.allowedIPs else {
++                invalidate(); throw SplitterAdmissionError.configurationChanged
++            }
++        }
++        try checkCurrent()
++        // Fresh reference; a settings factory cannot mutate the UAPI generator's object.
++        // Display name and runtime byte/handshake counters are not policy inputs.
++        return TunnelConfiguration(name: nil, interface: expectedInterface, peers: expectedPeers)
++    }
++
++    public var description: String { "SplitterWireGuardBinding(<redacted>)" }
++    public var debugDescription: String { description }
++    public var customMirror: Mirror { Mirror(self, children: EmptyCollection<(label: String?, value: Any)>()) }
++}

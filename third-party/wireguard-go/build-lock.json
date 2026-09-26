@@ -44,13 +44,13 @@
     "unpatched upstream Go runtime sleep semantics",
     "native settings timeout/error gate, late OS effects and Provider teardown observation",
     "native Go bridge C ABI, fd/TUN/device cleanup, blocked-call termination and checked update path",
-    "utun identity, credential delivery, Swift log filtering and secret runtime-config handling",
-    "fresh runtime policy binding for start/update/resume",
+    "Provider-sourced descriptor/name authority, native descriptor lease validation, credential delivery and Swift log filtering",
+    "live controller revision/config/policy projection, invalidation, real stop observation and session rebuild",
     "signed provider activation and real routing/DNS/teardown evidence"
   ],
   "patched_adapter_blob": "ecce2a45f1136eab99ebfd423577de2ccce543f7",
-  "settings_completion_blob": "f4c59fa6fe6bc1f1e63cd29b7bc2a24b82516481",
-  "runtime_hook_blob": "0d4e8e455792913e0aba123a8cca34a3ad326a33",
+  "settings_completion_blob": "8a09d2f6b24ca2267a1c30196340e69a4d633a2b",
+  "runtime_hook_blob": "3a035e533c54658bea0ffcb7b53cd9bac828ef1f",
   "bridge": {
     "scope": "thin lifecycle/C ABI adaptation, not a WireGuard protocol implementation or runtime approval",
     "files": {
@@ -60,5 +60,7 @@
     },
     "installer_blob": "ffa98f4999cea100fd0e5eee8534ee9d12285e48",
     "review_patch_blob": "dde3e55a28aef38b6116c3ccd75f162d5c83470e"
-  }
+  },
+  "runtime_adapter_blob": "d349ebe6eb7e07062cb1cf4007dada150465c008",
+  "admission_patch_blob": "2a7c3fd2f750184517c45f4de96a4038a5609c21"
 }

@@ -1,6 +1,6 @@
 # 统一开发入口与环境检查
 
-当前为 WG-INT-04；从 `main` 拉取即可，历史补丁/ZIP 不需要处理。LocalDev 仍是 LD-03B，不接管网络。Python 仅做开发工具；Go 编译上游 WireGuard 引擎。最终应用不以用户安装这些编译工具为运行前提，正式发行包尚未提供。
+当前为 WG-INT-05；从 `main` 拉取即可，历史补丁/ZIP 不需要处理。LocalDev 仍是 LD-03B，不接管网络。Python 仅做开发工具；Go 编译上游 WireGuard 引擎。最终应用不以用户安装这些编译工具为运行前提，正式发行包尚未提供。
 
 ## 现在先做什么
 
@@ -24,7 +24,7 @@ git pull --ff-only &&
 | `/bin/bash dev.sh doctor engine` | 检查完整引擎构建环境，Go 是必需项 |
 | `/bin/bash dev.sh run` | 原 LocalDev 构建/打开；不要求 Python 或 Go，不建立隧道 |
 | `/bin/bash dev.sh test` | 原 AppCore/LocalDev 离线回归，需要 Python 和 Swift，不需要 Go |
-| `/bin/bash dev.sh engine-test` | 设置完成门控与 Python 构建工具/入口回归；不执行 Go 生命周期测试，不需要 Go |
+| `/bin/bash dev.sh engine-test` | 设置完成/运行绑定/描述符租约与 Python 构建工具/入口回归；不执行 Go 生命周期测试，不需要 Go |
 | `/bin/bash dev.sh engine --fetch` | 环境检查通过后，下载固定公开源码，运行 Go 生命周期测试，再下载模块并编译链接候选；不运行 VPN 产物 |
 | `/bin/bash dev.sh engine` | 同上但只用缓存，缺缓存拒绝；不偷偷添加 --fetch |
 
@@ -39,6 +39,8 @@ git pull --ff-only &&
 脚本不运行安装器、不使用 sudo、不自动升级 Go，也不自动下载 Go toolchain；保持 GOTOOLCHAIN=local。只运行界面开发时无需为本批安装 Go。用户同意技术路线不被解释为同意自动安装软件。
 
 ## 本批后端变化与未完成项
+
+WG-INT-05 移除候选 Adapter 的 utun 描述符扫描，必须提供显式描述符租约与运行绑定；按当前 Provider/会话/generation/networkEpoch/凭据绑定复核，配置使用独立快照，失效后不复活。构建入口不变，详见 [运行绑定指南](wireguard-runtime-admission.md)、[ADR-017](adr/ADR-017-runtime-admission.md) 和 [本轮证据](evidence/wireguard-engine-05.md)。原生描述符的可信来源及 Provider 终止/撤销仍未完成，不能将名称匹配当所有权证明。
 
 候选 Adapter 新增设置完成的线程安全门控。同步回调、重复回调、超时和迟到完成有独立处理；设置失败或超时不能继续启动协议。已知非零 wgSetConfig 返回码会报错，不再报告成功。发生不确定设置/更新后，Adapter 标记需 Provider 重建，停止其已知协议句柄和网络监视，拒绝在同实例直接重试。
 
