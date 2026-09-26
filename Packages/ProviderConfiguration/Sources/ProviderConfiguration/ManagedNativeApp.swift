@@ -137,7 +137,11 @@ public final class ManagedAppWorkflow {
     public var publicationUnconfirmed: Bool { transaction.publicationUnconfirmed }
     public func refresh() async throws { _ = try await transaction.refresh() }
     public func save(configuration: Data, policyArchive: Data) async throws {
-        let material = try ManagedCredentialMaterial(configuration: configuration, policyArchive: policyArchive)
+        // Reject before Keychain preparation or preference publication, not just in UI.
+        let checked = try ManagedWireGuardInput.prepare(configuration: configuration, policyArchive: policyArchive)
+        let material = try checked.withValidatedSource {
+            try ManagedCredentialMaterial(configuration: $0, policyArchive: $1)
+        }
         _ = try await transaction.save(material)
     }
     /// Executes authenticated hello -> current-record Keychain read -> one-shot stage
@@ -149,7 +153,14 @@ public final class ManagedAppWorkflow {
         slot.client = client
         do {
             let challenge = try await client.hello(ownerUID: grant.handle.ownerUID)
-            let material = try await transaction.material(for: grant)
+            let loaded = try await transaction.material(for: grant)
+            // Old 08C records are rechecked; stored revisions are not semantic validation.
+            let checked = try loaded.withContents {
+                try ManagedWireGuardInput.prepare(configuration: $0, policyArchive: $1)
+            }
+            let material = try checked.withValidatedSource {
+                try ManagedCredentialMaterial(configuration: $0, policyArchive: $1)
+            }
             let envelope = try ManagedDeliveryEnvelope(challenge: challenge, grant: grant, material: material)
             try await client.stage(envelope)
             try await transaction.validateForStart(grant)
@@ -163,6 +174,7 @@ public final class ManagedAppWorkflow {
             return grant.request.attemptID
         } catch {
             transaction.finishDelivery(grant); client.close()
+            if let admission = error as? ManagedWireGuardInputError { throw admission }
             throw (error as? ManagedTransferError ?? .unavailable)
         }
     }

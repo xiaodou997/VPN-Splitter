@@ -36,15 +36,14 @@ final class ManagedConfigurationModel: ObservableObject {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         do {
-            let properties = try url.resourceValues(forKeys: [.isRegularFileKey])
-            guard properties.isRegularFile == true else { throw ManagedTransferError.invalidMessage }
-            let file = try FileHandle(forReadingFrom: url); defer { try? file.close() }
-            let bytes = try file.read(upToCount: ManagedCredentialMaterial.maximumConfigurationBytes + 1) ?? Data()
-            guard !bytes.isEmpty, bytes.count <= ManagedCredentialMaterial.maximumConfigurationBytes,
-                  String(data: bytes, encoding: .utf8) != nil else { throw ManagedTransferError.invalidMessage }
+            let bytes = try ManagedWireGuardInput.readConfigurationFile(url)
             configuration = bytes; fileSelected = true; saveConsent = false
-            message = "已在内存选择配置，尚未保存；不显示密钥。协议完整兼容性仍由后续运行校验决定。"
-        } catch { message = "配置读取失败：需要不超过 64 KiB 的 UTF-8 普通 .conf 文件。" }
+            message = "配置已通过格式与首轮范围检查，尚未保存；保存时还会检查网段、AllowedIPs 和基础设施冲突。没有建立 VPN。"
+        } catch {
+            // A rejected replacement must not leave the prior file armed for saving.
+            configuration = nil; fileSelected = false; saveConsent = false
+            message = (error as? ManagedWireGuardInputError ?? .file).message
+        }
     }
     func refresh() {
         perform { model in
@@ -57,19 +56,13 @@ final class ManagedConfigurationModel: ObservableObject {
         guard selectionLoaded, saveConsent, let configuration else { return }
         let rules = self.rules
         perform { model in
-            guard rules.utf8.count <= 65_536 else { throw ManagedTransferError.invalidMessage }
-            let lines = rules.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-            guard !lines.isEmpty, lines.count <= 256 else { throw ManagedTransferError.invalidMessage }
-            let cidrs = try lines.map { try IPv4CIDR($0).description }
-            let policy = try PropertyListSerialization.data(fromPropertyList: [
-                "schema": "managed-ipv4-include-draft-v1", "default": "DIRECT", "vpnCIDRs": cidrs
-            ], format: .binary, options: 0)
+            let policy = try ManagedWireGuardInput.encodeIncludePolicy(rules)
             let control = try model.control()
             // Keep the explicit loaded baseline; do not adopt a new selection behind the user.
             try await control.save(configuration: configuration, policyArchive: policy)
             model.generation = control.selectedGeneration
             model.configuration = nil; model.fileSelected = false; model.saveConsent = false
-            return "正式配置保存并重新载入一致。旧凭据版本保留；没有启动 VPN。"
+            return "配置与规则检查通过，保存并重新载入一致。旧凭据版本保留；物理网络和出口未验证，没有启动 VPN。"
         }
     }
     func checkDelivery() {
@@ -97,6 +90,8 @@ final class ManagedConfigurationModel: ObservableObject {
                 if workflow?.publicationUnconfirmed == true {
                     selectionLoaded = false
                     message = "保存结果未确认：凭据已保留，禁止交付。请先刷新重新核对；不要删除 Keychain、锁文件或系统配置来强行继续。"
+                } else if epoch == current, let admission = error as? ManagedWireGuardInputError {
+                    message = admission.message + "（" + admission.rawValue + "）"
                 } else if epoch == current {
                     let code = (error as? ManagedTransferError ?? .unavailable).rawValue
                     message = "操作未完成（\(code)）。需匹配签名和 App Group；旧 S1 配置须先在 S1 页明确移除。无自动重试或权限回退。"
@@ -112,7 +107,7 @@ struct ManagedConfigurationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("正式配置与凭据交付联调").font(.title2)
-            Text("单份配置、IPv4 Include 草稿。此页不建立 VPN；WireGuard 配置、DNS 和 Peer 范围仍需在正式运行前完整校验。")
+            Text("首轮只接受单 Peer、IPv4 数字端点、无 DNS 字段的 Include 配置。保存及交付都会检查脚本、密钥格式、AllowedIPs 和规则冲突；此页仍不建立 VPN。")
             HStack {
                 Button("选择 .conf") { model.selectConfiguration() }
                 Text(model.fileSelected ? "配置已在内存选择" : "未选择配置")

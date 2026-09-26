@@ -1,4 +1,4 @@
-# ProviderConfiguration / WG-INT-08C
+# ProviderConfiguration / WG-INT-08D
 
 Formal configuration selection, App-private Keychain records, and authenticated
 App-to-system-extension delivery. The package now includes macOS-only Security,
@@ -20,9 +20,21 @@ One selected profile, a cooperative user writer lease, explicit cancellation,
 unknown-save retention, bounded connection/attempt counts and monotonic expiry are
 implemented. There is no OS-level CAS or durable orphan-record garbage collection.
 
-This is NOT a working VPN. Received materials remain unvalidated runtime drafts and
-are discarded at the Provider's explicit engine blocker (2001). Metadata rejection
-is 2002; missing/expired/mismatched delivery is 2003. Old smoke remains 1001.
+08D reuses the existing AppCore WireGuard importer and PolicyCore at three real
+call sites: before save, after authenticated loading/before stage, and after
+Provider consumption. The first admission scope requires one Peer, IPv4 numeric
+endpoint, no DNS fields, canonical Include rules inside AllowedIPs, and no explicit
+endpoint/local/reserved-address conflicts. Invalid inputs fail, never get trimmed.
+The sealed snapshot preserves original configuration bytes, including keys and
+AllowedIPs; rule canonicalization does not rewrite protocol data. The private
+planning context is not a runtime epoch; no installable plan is exposed.
+
+This is NOT a working VPN. Native WireGuardKit configuration conversion, trusted
+packet resources and the formal engine/network lifecycle are still missing.
+Valid semantic input stops at engine blocker 2001. Semantic rejection is 2004,
+metadata rejection 2002, missing delivery 2003, and old smoke remains 1001.
+The local AppCore/PolicyCore dependencies and package deployment minimum now match
+the existing macOS 26 product. No new remote dependency, entitlement or ACL change.
 Code wiring is not native authentication or system-network acceptance evidence.
 
 See ../../docs/adr/ADR-WG-INT-08C-authenticated-configuration-delivery.md and
@@ -30,3 +42,6 @@ See ../../docs/adr/ADR-WG-INT-08C-authenticated-configuration-delivery.md and
 checks, changed permissions, remaining runtime work, and NOT RUN items.
 Run `/bin/bash dev.sh provider-test` for offline regression in a complete checkout.
 The new formal page belongs to the S1 Xcode project, not `dev.sh run` / LocalDev.
+
+See ../../docs/adr/ADR-WG-INT-08D-material-admission.md and
+../../docs/evidence/wg-int-08d-material-admission.md for this batch.

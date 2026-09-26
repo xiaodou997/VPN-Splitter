@@ -4,10 +4,11 @@ import PackageDescription
 
 let package = Package(
     name: "ProviderConfiguration",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS("26.0")],
     products: [.library(name: "ProviderConfiguration", targets: ["ProviderConfiguration"])],
+    dependencies: [.package(path: "../AppCore"), .package(path: "../PolicyCore")],
     targets: [
-        .target(name: "ProviderConfiguration"),
-        .testTarget(name: "ProviderConfigurationTests", dependencies: ["ProviderConfiguration"])
+        .target(name: "ProviderConfiguration", dependencies: ["AppCore", "PolicyCore"]),
+        .testTarget(name: "ProviderConfigurationTests", dependencies: ["ProviderConfiguration", "AppCore", "PolicyCore"])
     ]
 )

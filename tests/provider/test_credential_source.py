@@ -17,7 +17,9 @@ class CredentialSourceTests(unittest.TestCase):
         target = next(t for t in package['targets'] if t['name'] == 'ProviderConfiguration')
         self.assertIn('ManagedAppKeychain.swift', target['sources'])
         self.assertIn('ManagedCredentialVault.swift', target['sources'])
-        self.assertEqual(package['dependencies'], [])
+        self.assertIn('ManagedWireGuardInput.swift', target['sources'])
+        self.assertEqual(sorted(d['identity'] for d in package['dependencies']), ['appcore', 'policycore'])
+        self.assertTrue(all(d['type'] == 'fileSystem' for d in package['dependencies']))
 
     def test_native_store_has_no_shared_or_fallback_access(self):
         source = (SOURCES / 'ManagedAppKeychain.swift').read_text()

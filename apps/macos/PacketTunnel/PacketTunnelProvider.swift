@@ -63,12 +63,20 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     throw ManagedTransferError.deliveryMissing
                 }
                 let received = try runtime.consume(launch, ownerUID: ownerUID)
-                // Consume at the REAL entry; never start with only a matching reference.
-                // Material is intentionally discarded while engine/channel wiring is absent.
-                _ = received
+                // Authentication and semantic admission are separate. Validate actual bytes
+                // here even when an older/signed App claims it already checked its input.
                 Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_CONSUMED attempt=\(launch.request.attemptID.uuidString, privacy: .public) backend=NOT_CONNECTED network_settings=NOT_APPLIED")
+                let checked = try received.withContents {
+                    try ManagedWireGuardInput.prepare(configuration: $0, policyArchive: $1)
+                }
+                _ = checked // Typed source + policy; NOT native conversion or an installable plan.
+                Self.log.notice("MANAGED_INPUT_VALIDATED attempt=\(launch.request.attemptID.uuidString, privacy: .public) network_settings=NOT_APPLIED")
                 reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2001,
-                    userInfo: [NSLocalizedDescriptionKey: "Authenticated credential delivery consumed. WireGuard runtime is not yet installed; no VPN was started."]))
+                    userInfo: [NSLocalizedDescriptionKey: "Authenticated material passed configuration and policy checks. Native WireGuard runtime is not installed; no VPN was started."]))
+            } catch let error as ManagedWireGuardInputError {
+                Self.log.notice("MANAGED_INPUT_REJECTED attempt=\(launch.request.attemptID.uuidString, privacy: .public) code=\(error.rawValue, privacy: .public) network_settings=NOT_APPLIED")
+                reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2004,
+                    userInfo: [NSLocalizedDescriptionKey: error.message]))
             } catch {
                 Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_REJECTED network_settings=NOT_APPLIED")
                 reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2003,

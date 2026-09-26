@@ -1,7 +1,9 @@
 # v0.1 开发路线图与任务拆分
 
-版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-26 / WG-INT-08C。
-**当前仍处于 S1，未形成可用 VPN。** LocalDev 为 LD-03B。08A/08B 的启动元数据和 App Keychain 已由本批正式页面、真实 NE 保存/重载、双向签名要求 XPC、正式 Provider 消费接线串起；原生 Apple SDK/签名/Keychain/XPC/GUI 验收仍 NOT RUN。WireGuard 正式引擎、自有数据通道、系统撤销未接通。OpenVPN 与应用内 External 未接通。
+版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-26 / WG-INT-08D。
+**当前仍处于 S1，未形成可用 VPN。** LocalDev 为 LD-03B。08A/08B 的启动元数据和 App Keychain 已由 08C 的正式页面、真实 NE 保存/重载、双向签名要求 XPC、正式 Provider 消费接线串起；原生 Apple SDK/签名/Keychain/XPC/GUI 验收仍 NOT RUN。WireGuard 正式引擎、自有数据通道、系统撤销未接通。OpenVPN 与应用内 External 未接通。
+
+**08D 新增：正式保存前、认证交付前、Provider 消费后均运行同一材料校验。** 实际复用 WireGuard 导入器和 PolicyCore，非法材料返回 2004；合格材料仍在 2001 引擎门槛停止。本批未完成 WireGuardKit 对象转换、自有数据通道或真实 VPN。见 [08D 证据](evidence/wg-int-08d-material-admission.md)和 [08D ADR](adr/ADR-WG-INT-08D-material-admission.md)。
 
 总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。当前事实见 [验收状态](acceptance-status.md)、[08C 证据](evidence/wg-int-08c-authenticated-configuration-delivery.md)、[08C ADR](adr/ADR-WG-INT-08C-authenticated-configuration-delivery.md)。代码接线、离线回归、原生构建、真实功能分别报告。
 
@@ -15,13 +17,14 @@
 | 原生构建 48eee07 | 用户报告编译、链接和桥接符号通过；保留且仅覆盖该基线，不自动覆盖新增代码 |
 | WG-INT-08A/B | 统一启动元数据和 App 专用 Keychain 记录已实现；历史证据独立保留 |
 | WG-INT-08C | 正式页面 → 选择/保存事务 → 认证 XPC → 正式 Provider 消费已有实际 API 代码接线；没有真机通过证据。收到材料后仍返回 2001；无交付 2003；元数据错误 2002；旧 smoke 1001 |
+| WG-INT-08D | 实际完整导入器与 PolicyCore 已接保存/交付/消费三处，语义错误 2004；输出类型化源快照，尚无原生转换、数据通道或运行验收 |
 
-**首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 Include，指定网段走 VPN，其他目标直连；可连接、取消、断开，并有系统停止/恢复证据。** 08C 页面保存的是交付草稿，scope 标签和传输成功不代替 WireGuard/脚本/Peer/DNS/AllowedIPs 的完整运行校验。
+**首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 Include，指定网段走 VPN，其他目标直连；可连接、取消、断开，并有系统停止/恢复证据。** 08D 对新保存及旧记录交付实际执行脚本/字段/密钥/Peer/地址/规则和 AllowedIPs 校验。首轮仅单 Peer、IPv4 数字端点，无 DNS 字段；含 DNS/IPv6/多 Peer 的配置明确拒绝，不自动删除。DNS 的 S2/v0.1 目标保留。配置校验不代替运行授权、物理网络或真实出口。
 
 | 下一优先任务 | 必须交付的实际结果 |
 | --- | --- |
 | 原生保存/交付验收 | 新增代码的 Mac 构建；正确 App Group/profile；真实 Keychain、偏好保存/取消/重载；双向错签名/错用户/重放/过期拒绝；正确材料被正式 Provider 消费 |
-| 材料转换与自有数据通道 | 将实际交付的配置/规则经过现有完整解析/编译；从本扩展取得可信数据资源，不扫描 utun 或只核对 UUID |
+| 材料转换与自有数据通道 | 将 08D 已校验的完整原始字节和类型化规则转换为 WireGuardKit 配置，核对协议字段不变；接本扩展可信数据资源和实际 underlay/epoch，不扫描 utun 或使用校验内部占位 context |
 | 正式运行会话 | 安装 WG-INT-07 实际引擎会话；连接状态来自系统/后端观察，不把暂存 ACK 或 startTunnel 返回值当连接成功 |
 | 网络失效与停止 | 实际物理网络/epoch、取消/超时/切网失效和消费后授权生命周期；区分 backend 停止与路由/DNS 撤销，无法确认显示恢复需处理 |
 | 持久化维护 | 旧凭据/孤儿记录与清理失败的持久化恢复，不能通过扫库删除或移除锁解决；当前保存未知时保留候选，不宣称原子 OS CAS |
