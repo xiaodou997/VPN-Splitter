@@ -1,24 +1,35 @@
 # v0.1 开发路线图与任务拆分
 
-版本：Design Draft 1.0；2026-09-23。  
-当前状态（2026-09-25）：S0 工具/证据与 PolicyCore 已合入 main；S1-01 preflight / unsigned 和旧 LocalDev 启动为 USER_REPORTED 成功。UI 修复、WireGuard 结构导入和 Keychain 事务已统一纳入 main，LD-02B 构建/开窗已获用户报告成功，但顶部遮挡待修正；当前 LD-02C 提供布局调整、批量 IPv4 规则与搜索，离线通过，新版 Mac 布局/交互与真实 Keychain 仍待验证。开发签名与扩展加载暂停，完整 S1 仍 IN PROGRESS；S0 收尾与真实场景缺口不因合并取消。
-总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。
+版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-26。  
+**当前仍处于 S1，未形成可用 VPN。** LocalDev 已到 LD-03B；WG-INT-01～07 为构建、规划和进程内接入。WG-INT-08A 将启动元数据校验加入正式 App/PacketTunnel target，但正式 Provider 尚未安装 WireGuard 运行会话，合法请求仍明确拒绝执行。OpenVPN 和应用内 External 未接通。
 
-## 当前执行队列（ADR-007，2026-09-25）
+总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。实际能力/需求状态见 [验收状态](acceptance-status.md)；本批代码与测试边界见 [WG-INT-08A 证据](evidence/wg-int-08a-managed-launch-boundary.md)。代码、编译、系统实测分别报告。
 
-用户已确认先推进无网络副作用的 LocalDev，开发签名不再阻塞配置、规则与界面开发。调序依据：[ADR-007](adr/ADR-007-localdev-before-signing.md)。这是工程调度变化，不是降低 S1 退出条件。
+## 当前执行队列：先打通一条真实连接
 
-用户明确授权直接推送 main，并确认之前三批包均未下载。后续以 main 为唯一日常更新入口，不再要求逐个应用补丁或 ZIP。代码与回归完成后再非强制更新分支；本地只需拉取并运行原 build.sh。最新布局/规则回归见 [LD-02C 证据](evidence/localdev-02c-layout-and-batch.md)；三批整合历史见 [整合证据](evidence/localdev-main-integration.md)。
+依据用户 2026-09-26 的现状核对，开发焦点由提前开发 LocalDev 转回正式执行链；见 [WG-INT-08A ADR](adr/ADR-WG-INT-08A-managed-launch-contract.md)。这不扩大首发范围，也不关闭 [ADR-007](adr/ADR-007-localdev-before-signing.md) 保留的技术门槛。不再以完善 UI 或增加模拟数量作为本阶段主要交付。
 
-| 任务 | 当前范围与状态 |
+| 已有工作 | 当前事实与边界 |
 | --- | --- |
-| LD-01 / LD-UI-01–04 | 旧版开窗 USER_REPORTED；单编辑事务、失败保存保留输入、退出保护与界面简化已入库，纯逻辑回归通过；新版 GUI 仍待验 |
-| LD-02A / S1-03 部分 | WireGuard 结构解析、兼容报告、配置提供的端点/DNS/接口/Peer 检查已入库；无 Endpoint 解析或真实网络探测 |
-| LD-02B / S1-03 部分 | 显式 Keychain 保存、读回、重导入、解除引用与清理恢复已入库；故障注入回归通过，真实 Security API 与授权行为待 Mac 合成样例验证 |
-| LD-02C / LD-UI-05 | 顶部遮挡布局修正、批量 IPv4 追加和规则搜索；单编辑事务/first-match/数据版本不变。152 项 AppCore 与 51 项合同通过，Mac 复验待执行 |
-| LD-03 | 下一步先稳定新版 Mac 构建与导入/凭据交互，再扩展配置编辑和连接生命周期；首次真实 Managed 联调前恢复开发签名 |
+| LocalDev LD-01～03B | 配置、规则、导入、参数和模拟生命周期已有代码；开窗和遮挡修正为 USER_REPORTED 成功。真实 Keychain 的完整操作链未逐项验收；模拟不连接 VPN |
+| PolicyCore / ManagedSettings | IPv4 first-match、约束与路由/设置构造已实现；计算结果不证明系统应用或真实出口 |
+| WG-INT-01～07 | 原生构建基础、设置门控、资源生命周期、组装与进程内会话接线；不是七项已可用 VPN 功能 |
+| 原生构建 48eee07 | 用户报告编译、链接、桥接符号检查通过，证据保留；不自动覆盖 WG-INT-06/07 或本批代码 |
+| WG-INT-08A | 正式 target 引用启动协议包，App 提交辅助代码和 Provider 元数据校验有离线回归；没有真实连接 UI 接入或跨进程凭据授权。合法请求返回 Managed 2001，不能报告连接成功 |
 
-统一离线入口 `/bin/bash tools/localdev/test.sh`；不会启动 App、访问真实 Keychain 或修改网络。已通过的 S1 preflight / unsigned 与 S0 单目标实验不要求重复；Developer ID、公证和 DMG 留在 S5。OpenVPN 解析/认证、DNS-derived 与 External 执行仍遵循各自阶段门槛。
+**首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 Include，指定网段走 VPN，其他目标直连；可连接、取消、断开，并有系统停止/恢复证据。** 请求中的 scope 标记不是实际配置、Peer 数、路由或权限已验证的证明。
+
+| 下一优先任务 | 必须交付的实际结果 |
+| --- | --- |
+| 正式配置与凭据交付 | 实现 App 保存/选择事务与扩展侧授权读取，验证实际调用方、记录所有者、完整配置/规则版本和撤销；普通配置仅存引用，不放宽 LocalDev 权限 |
+| 扩展自有数据通道 | 从真实 Provider 取得确属本扩展的数据资源；不能扫描 utun 猜测，不把相同 UUID/接口名作为所有权证明 |
+| 正式运行会话接线 | 将实际配置、PolicyCore、ManagedSettings、WG-INT-07 会话装到正式 Provider；App 重新载入偏好后显式提交，状态来自真实 NE 观察 |
+| 实际网络失效与停止 | 接物理网络/epoch、取消/超时/切网失效；区分 backend 停止和路由/DNS 撤销，无法确认显示恢复需处理 |
+| 构建与首轮联调 | 对新增正式代码执行 Mac 构建；首次真实运行前再恢复开发签名和现场授权；收集握手、目标访问、双路径与断开后系统证据 |
+
+以上闭环通过后才扩展 WireGuard 运行质量和 S2 DNS，再进入 OpenVPN / External。已有 S1 preflight / unsigned 和 S0 单目标证据不要求无理由重做，S0 收尾独立保留。
+
+用户已授权直接非强制推送 main；main 是唯一日常更新入口，不需要历史补丁或 ZIP。本地使用 `git pull --ff-only` 和 `dev.sh`。`run` / `test` 保持 LocalDev，`engine` / `engine-test` 保持已有 WG 候选流程，新增 `provider-test` 只做启动边界离线回归，不保存 VPN 偏好、不读取真实 Keychain、不激活扩展、不修改网络。
 
 ## 1. 执行规则
 
@@ -118,7 +129,7 @@
 
 一个任务完成需代码/文档一致、测试可重复、错误/权限/恢复路径覆盖、无秘密、依赖许可记录齐全、诊断可解释、未测项明确。影响系统网络的变更额外提供前后状态及撤销证据。
 
-新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：从 main 更新 LD-02C，复验布局与批量规则，并验证合成配置/Keychain 流程，再继续上方队列；签名只阻塞首次真实隧道联调。S0 未完成的收尾和场景/认证等价性独立保留，不要求重复已完成的单目标实验。不 Fork 整个参考应用，不以 LocalDev 界面完成宣告 S1–S5 通过。
+新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：按上方队列补齐真实凭据交付、自有数据通道、正式会话及系统撤销，不再把 LocalDev 完善视为首要目标；签名在首次真实隧道联调前恢复，但不是唯一剩余开发工作。S0 未完成的收尾和场景/认证等价性独立保留，不要求重复已完成的单目标实验。不 Fork 整个参考应用，不以 LocalDev 界面完成宣告 S1–S5 通过。
 
 ## main 工作流与 S1-01 交付
 

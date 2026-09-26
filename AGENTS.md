@@ -8,7 +8,17 @@
 
 用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
-## 当前优先级：LocalDev
+## 当前优先级：正式 WireGuard 执行链（2026-09-26）
+
+用户已要求从 LocalDev 转向首条真实 WireGuard IPv4 Include 路径：单配置、首轮单 Peer、指定网段 VPN、其余直连，并能取消/断开及确认停止后的系统状态。不要用更多 UI 或模拟数量代替这条路径。开发签名仅在首次真实联调前恢复；本条不授权激活扩展、读取真实密钥或修改网络。
+
+先读 docs/acceptance-status.md 与 docs/adr/ADR-WG-INT-08A-managed-launch-contract.md。LocalDev 为 LD-03B，WG-INT-07 为进程内会话接线；WG-INT-08A 新增正式启动元数据边界与 App 提交辅助代码，尚未接真实连接 UI、凭据授权来源、自有隧道资源或正式会话运行。合法 Managed 请求仍返回 2001，错误请求返回 2002；旧 S1 smoke 保留 1001。不能把这些错误门控改成成功来宣布接通。
+
+日常入口为 dev.sh：run / test 保持 LocalDev；engine / engine-test 保持原生候选及其回归；provider-test 测试正式启动边界，包含明确的框架替身，不是真实 NE 验收。48eee07 用户报告的原生构建成功保留且仅覆盖该基线；新增代码的 Apple SDK 编译和真实功能另验。下一优先项是凭据的实际授权交付、自有数据通道、会话/网络/撤销接线；不得放宽 LocalDev ACL 或把 UUID/引用相等当作授权证明。
+
+## LocalDev 历史调序与持续安全边界
+
+以下保留 ADR-007 时期的背景；当前开发优先级以上方执行链为准，已有数据和权限边界不变。
 
 用户已确认暂停开发签名，先做无网络副作用的配置/规则/诊断界面。先读 docs/adr/ADR-007-localdev-before-signing.md 和 docs/localdev.md；它们调整开发调度，不关闭 S0–S5 真实技术门槛。已有 S1 preflight / unsigned 与旧版 LocalDev 开窗为 USER_REPORTED 成功，不要求重做，也不能作为 LD-02B 新版 GUI/Keychain 验收。入口为 /bin/bash tools/localdev/build.sh run；现有 unsigned 产物仍不可安装。
 

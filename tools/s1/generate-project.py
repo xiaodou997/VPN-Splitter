@@ -19,7 +19,7 @@ def build_project():
         return key
     def file(name, path, typ, tree='<group>'):
         return add(name, isa='PBXFileReference', lastKnownFileType=typ, path=path, sourceTree=tree)
-    app_files = [file('app.'+n, 'App/'+n, 'sourcecode.swift') for n in ('VPNSplitterApp.swift','SpikeController.swift')]
+    app_files = [file('app.'+n, 'App/'+n, 'sourcecode.swift') for n in ('VPNSplitterApp.swift','SpikeController.swift','ManagedTunnelLaunchClient.swift')]
     tunnel_files = [file('tunnel.'+n, 'PacketTunnel/'+n, 'sourcecode.swift') for n in ('main.swift','PacketTunnelProvider.swift')]
     plist_files = [file('plist.'+n,n+'/Info.plist','text.plist.xml') for n in ('App','PacketTunnel')]
     config_files = {n:file('config.'+n,'Config/'+n+'.xcconfig','text.xcconfig') for n in ('Debug','Release','DeveloperID')}
@@ -29,12 +29,15 @@ def build_project():
     products = add('products', isa='PBXGroup', children=[app_product,tunnel_product], name='Products', sourceTree='<group>')
     group = add('root', isa='PBXGroup', children=app_files+tunnel_files+plist_files+list(config_files.values())+extra_config+[products], sourceTree='<group>')
     package = add('package',isa='XCLocalSwiftPackageReference',relativePath='../../Packages/PolicyCore')
+    managed_package = add('managed.package',isa='XCLocalSwiftPackageReference',relativePath='../../Packages/ProviderConfiguration')
     for role, files, product in [('app',app_files,app_product),('tunnel',tunnel_files,tunnel_product)]:
         src=[add(role+'.source.'+str(i),isa='PBXBuildFile',fileRef=f) for i,f in enumerate(files)]
         sources=add(role+'.sources',isa='PBXSourcesBuildPhase',buildActionMask='2147483647',files=src,runOnlyForDeploymentPostprocessing='0')
         dep=add(role+'.package',isa='XCSwiftPackageProductDependency',package=package,productName='PolicyCore')
         link=add(role+'.link',isa='PBXBuildFile',productRef=dep)
-        frameworks=add(role+'.frameworks',isa='PBXFrameworksBuildPhase',buildActionMask='2147483647',files=[link],runOnlyForDeploymentPostprocessing='0')
+        managed_dep=add(role+'.managed.package',isa='XCSwiftPackageProductDependency',package=managed_package,productName='ProviderConfiguration')
+        managed_link=add(role+'.managed.link',isa='PBXBuildFile',productRef=managed_dep)
+        frameworks=add(role+'.frameworks',isa='PBXFrameworksBuildPhase',buildActionMask='2147483647',files=[link,managed_link],runOnlyForDeploymentPostprocessing='0')
         configs=[]
         for name in config_files:
             settings={'PRODUCT_BUNDLE_IDENTIFIER':'$(VPN_APP_BUNDLE_ID)' if role=='app' else '$(VPN_EXTENSION_BUNDLE_ID)',
@@ -59,10 +62,10 @@ def build_project():
             phases.append(add('embed',isa='PBXCopyFilesBuildPhase',buildActionMask='2147483647',dstPath='$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions',dstSubfolderSpec='16',files=[embedfile],name='Embed System Extensions',runOnlyForDeploymentPostprocessing='0'))
             proxy=add('proxy',isa='PBXContainerItemProxy',containerPortal=ident('project'),proxyType='1',remoteGlobalIDString=ident('tunnel.target'),remoteInfo='PacketTunnel')
             dependencies.append(add('target.dep',isa='PBXTargetDependency',target=ident('tunnel.target'),targetProxy=proxy))
-        add(role+'.target',isa='PBXNativeTarget',buildConfigurationList=configlist,buildPhases=phases,buildRules=[],dependencies=dependencies,name='VPN-Splitter' if role=='app' else 'PacketTunnel',packageProductDependencies=[dep],productName='VPN-Splitter' if role=='app' else 'PacketTunnel',productReference=product,productType='com.apple.product-type.application' if role=='app' else 'com.apple.product-type.system-extension')
+        add(role+'.target',isa='PBXNativeTarget',buildConfigurationList=configlist,buildPhases=phases,buildRules=[],dependencies=dependencies,name='VPN-Splitter' if role=='app' else 'PacketTunnel',packageProductDependencies=[dep,managed_dep],productName='VPN-Splitter' if role=='app' else 'PacketTunnel',productReference=product,productType='com.apple.product-type.application' if role=='app' else 'com.apple.product-type.system-extension')
     configs=[add('project.'+n,isa='XCBuildConfiguration',baseConfigurationReference=config_files[n],buildSettings={},name=n) for n in config_files]
     configlist=add('project.configs',isa='XCConfigurationList',buildConfigurations=configs,defaultConfigurationIsVisible='0',defaultConfigurationName='Debug')
-    add('project',isa='PBXProject',attributes={'BuildIndependentTargetsInParallel':'YES','LastUpgradeCheck':'2600','TargetAttributes':{ident('app.target'):{'CreatedOnToolsVersion':'26.0','SystemCapabilities':{'com.apple.NetworkExtensions':{'enabled':'1'},'com.apple.SystemExtension':{'enabled':'1'}}},ident('tunnel.target'):{'CreatedOnToolsVersion':'26.0','SystemCapabilities':{'com.apple.NetworkExtensions':{'enabled':'1'},'com.apple.Sandbox':{'enabled':'1'}}}}},buildConfigurationList=configlist,compatibilityVersion='Xcode 14.0',developmentRegion='en',hasScannedForEncodings='0',knownRegions=['en','Base'],mainGroup=group,packageReferences=[package],productRefGroup=products,projectDirPath='',projectRoot='',targets=[ident('app.target'),ident('tunnel.target')])
+    add('project',isa='PBXProject',attributes={'BuildIndependentTargetsInParallel':'YES','LastUpgradeCheck':'2600','TargetAttributes':{ident('app.target'):{'CreatedOnToolsVersion':'26.0','SystemCapabilities':{'com.apple.NetworkExtensions':{'enabled':'1'},'com.apple.SystemExtension':{'enabled':'1'}}},ident('tunnel.target'):{'CreatedOnToolsVersion':'26.0','SystemCapabilities':{'com.apple.NetworkExtensions':{'enabled':'1'},'com.apple.Sandbox':{'enabled':'1'}}}}},buildConfigurationList=configlist,compatibilityVersion='Xcode 14.0',developmentRegion='en',hasScannedForEncodings='0',knownRegions=['en','Base'],mainGroup=group,packageReferences=[package,managed_package],productRefGroup=products,projectDirPath='',projectRoot='',targets=[ident('app.target'),ident('tunnel.target')])
     return {'archiveVersion':'1','classes':{},'objectVersion':'56','objects':objects,'rootObject':ident('project')}
 
 def serialize(value, level=0):
