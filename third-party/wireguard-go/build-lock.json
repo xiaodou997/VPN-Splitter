@@ -15,7 +15,8 @@
       "COPYING": "af11a81081ea159a69b1eda2b1b4199fc7d88c5f",
       "Sources/WireGuardKit/WireGuardAdapter.swift": "f7be19b15f5cbe39fd0e6496cdf0b2d426d83b6b",
       "Sources/WireGuardKit/PacketTunnelSettingsGenerator.swift": "3658956c6a036ba97b493dc694c756c4eee5b121",
-      "Sources/WireGuardKitGo/api-apple.go": "5d24982ac5b71ba0ab84afe972652a2d4f8549e5"
+      "Sources/WireGuardKitGo/api-apple.go": "5d24982ac5b71ba0ab84afe972652a2d4f8549e5",
+      "Sources/WireGuardKitC/WireGuardKitC.h": "54e4783d40f3346f431f92ce6e970ae4024cd417"
     }
   },
   "engine": {
@@ -63,5 +64,6 @@
   },
   "runtime_adapter_blob": "d349ebe6eb7e07062cb1cf4007dada150465c008",
   "admission_patch_blob": "2a7c3fd2f750184517c45f4de96a4038a5609c21",
-  "patched_manifest_blob": "47618ff08764067d623428d749594167a14032cf"
+  "patched_manifest_blob": "47618ff08764067d623428d749594167a14032cf",
+  "patched_c_header_blob": "84c53f7068ef9d3665e7f53d851f388806877342"
 }

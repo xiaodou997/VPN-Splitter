@@ -27,6 +27,7 @@ from contextlib import contextmanager
 from policy_hook import git_blob, patch_adapter, patch_manifest
 from runtime_hook import checked_support, patch_runtime_adapter
 from bridge_assets import checked_bridge, stage_bridge
+from c_header_hook import prepare_c_header
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK_PATH = ROOT / "third-party/wireguard-go/build-lock.json"
@@ -279,6 +280,7 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
     before = {name: (engine / name).read_bytes() for name in ("go.mod", "go.sum")}
     bridge = engine / "splitterbridge"
     lock = json.loads((root / "third-party/wireguard-go/build-lock.json").read_text())
+    prepare_c_header(apple, lock)  # Self-contained C module, before Go/Swift compilation.
     sources = checked_bridge(root, lock)
     stage_bridge(sources, (apple / "Sources/WireGuardKitGo/api-apple.go").read_bytes(), bridge)
     # Test only the shared lifecycle against in-memory devices; no C entrypoints,
@@ -357,6 +359,7 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
                 apple_revision=lock["apple"]["revision"], engine_revision=lock["engine"]["revision"],
                 lock_sha256=hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
                 patched_manifest_blob=git_blob(modified_manifest),
+                patched_c_header_blob=lock["patched_c_header_blob"],
                 patched_adapter_blob=git_blob(modified), settings_completion_blob=git_blob(support),
                 runtime_hook_blob=lock["runtime_hook_blob"], bridge=lock["bridge"],
                 bridge_lifecycle_tests="PASS", artifact=str(executable),

@@ -275,6 +275,9 @@ class BuildTests(unittest.TestCase):
         (root / 'wireguard-go/go.sum').write_text('locked sum')
         bridge = root / 'wireguard-apple/Sources/WireGuardKitGo'; bridge.mkdir(parents=True)
         (bridge / 'api-apple.go').write_bytes((ROOT / 'tests/fixtures/wireguard-build/api-apple.go.reference').read_bytes())
+        header = root / 'wireguard-apple/Sources/WireGuardKitC/WireGuardKitC.h'
+        header.parent.mkdir(parents=True)
+        header.write_bytes((ROOT / 'tests/fixtures/wireguard-build/WireGuardKitC/WireGuardKitC.h').read_bytes())
         return dict(go='/test tools/go', swift='/test tools/swift', sdk='/test sdk', clang='/test tools/clang')
 
     def test_compile_sequence_and_no_executable_run(self):
