@@ -28,6 +28,7 @@ from policy_hook import git_blob, patch_adapter, patch_manifest
 from runtime_hook import checked_support, patch_runtime_adapter
 from bridge_assets import checked_bridge, stage_bridge, read_ordinary
 from c_header_hook import prepare_c_header
+from packet_flow_assets import checked_packet_flow, stage_packet_flow, EXTRA_APPLE_PATHS, require_packet_flow_symbols
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCK_PATH = ROOT / "third-party/wireguard-go/build-lock.json"
@@ -240,7 +241,7 @@ def tree_files(listing: str) -> dict[str, str]:
     return files
 
 
-def create_probe(probe: Path, root: Path) -> None:
+def create_probe(probe: Path, root: Path, packet_flow: bool = False) -> None:
     integration = read_ordinary(root, "integrations/wireguard/ManagedWireGuardAssembly.swift")
     session = read_ordinary(root, "integrations/wireguard/ManagedWireGuardSession.swift")
     probe.mkdir(mode=0o700)
@@ -265,6 +266,13 @@ let package = Package(
     swiftLanguageModes: [.v6]
 )
 '''.replace("MANAGED_PATH", managed).replace("POLICY_PATH", policy).replace("CONTROLLER_PATH", controller)
+    if packet_flow:
+        configuration = json.dumps(str(root / "Packages/ProviderConfiguration"), ensure_ascii=False)
+        manifest = manifest.replace('.package(path: ' + controller + ')],',
+            '.package(path: ' + controller + '), .package(path: ' + configuration + ')],')
+        manifest = manifest.replace('.product(name: "ProviderSession", package: "ProviderSession")',
+            '.product(name: "ProviderSession", package: "ProviderSession"),\n'
+            '        .product(name: "ProviderConfiguration", package: "ProviderConfiguration")')
     (probe / "Package.swift").write_text(manifest)
     sources = probe / "Sources/WGLinkProbe"; sources.mkdir(parents=True, mode=0o700)
     shutil.copyfile(root / "tools/wireguard/Probe.swift", sources / "main.swift")
@@ -272,6 +280,9 @@ let package = Package(
         destination.write(integration)
     with (sources / "ManagedWireGuardSession.swift").open("xb") as destination:
         destination.write(session)
+    if packet_flow:
+        with (sources / "ManagedWireGuardNativeInput.swift").open("xb") as destination:
+            destination.write(read_ordinary(root, "integrations/wireguard/ManagedWireGuardNativeInput.swift"))
 
 
 def require_symbols(text: str) -> None:
@@ -286,7 +297,7 @@ def require_symbols(text: str) -> None:
         raise BuildError("E_LINK_SYMBOLS: missing " + ", ".join(sorted(REQUIRED_SYMBOLS - symbols)))
 
 
-def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch: bool) -> Path:
+def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch: bool, packet_flow: bool = False) -> Path:
     engine, apple = run / "wireguard-go", run / "wireguard-apple"
     before = {name: (engine / name).read_bytes() for name in ("go.mod", "go.sum")}
     bridge = engine / "splitterbridge"
@@ -294,6 +305,11 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
     prepare_c_header(apple, lock)  # Self-contained C module, before Go/Swift compilation.
     sources = checked_bridge(root, lock)
     stage_bridge(sources, (apple / "Sources/WireGuardKitGo/api-apple.go").read_bytes(), bridge)
+    if packet_flow:
+        stage_packet_flow(root, lock, apple, bridge)
+        commands.run([tools["go"], "test", "-race", "-count=1", "-timeout=60s",
+                      "packet-flow-queue.go", "packet-flow-queue_test.go"], cwd=bridge, timeout=180,
+                     extra={"CGO_ENABLED": "1"})
     # Test only the shared lifecycle against in-memory devices; no C entrypoints,
     # upstream device, TUN or network code is compiled or executed by this step.
     commands.run([tools["go"], "test", "-race", "-count=1", "-timeout=60s",
@@ -322,7 +338,11 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
     if commands.run(["/usr/bin/xcrun", "lipo", "-archs", str(archive)]) != "arm64":
         raise BuildError("E_ARCH: expected arm64 static archive")
     require_symbols(commands.run(["/usr/bin/xcrun", "nm", "-gU", str(archive)]))
-    create_probe(run / "probe", root)
+    if packet_flow:
+        require_packet_flow_symbols(commands.run(["/usr/bin/xcrun", "nm", "-gU", str(archive)]))
+        create_probe(run / "probe", root, packet_flow=True)
+    else:
+        create_probe(run / "probe", root)
     swift_args = [tools["swift"], "build", "--package-path", str(run / "probe"),
                   "--scratch-path", str(run / "swift-build"), "--configuration", "debug",
                   "--triple", "arm64-apple-macosx26.0", "--sdk", tools["sdk"],
@@ -335,18 +355,23 @@ def compile_native(commands: Commands, tools: dict, run: Path, root: Path, fetch
     if commands.run(["/usr/bin/xcrun", "lipo", "-archs", str(executable)]) != "arm64":
         raise BuildError("E_ARCH: expected arm64 executable")
     require_symbols(commands.run(["/usr/bin/xcrun", "nm", "-gU", str(executable)]))
+    if packet_flow:
+        require_packet_flow_symbols(commands.run(["/usr/bin/xcrun", "nm", "-gU", str(executable)]))
     return executable
 
 
-def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, fetch: bool) -> dict:
+def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, fetch: bool, packet_flow: bool = False) -> dict:
     support = checked_support(ROOT, lock)
     checked_bridge(ROOT, lock)  # Reject asset drift before any public download.
+    if packet_flow:
+        checked_packet_flow(ROOT, lock)
     cache = output / "sources"; private_directory(cache)
     for name in ("apple", "engine"):
         spec = lock[name]
         repository = source_repository(commands, cache, name, spec, fetch)
         target = run / ("wireguard-apple" if name == "apple" else "wireguard-go")
-        export_source(commands, repository, spec, target, APPLE_PATHS if name == "apple" else None)
+        apple_paths = APPLE_PATHS + (EXTRA_APPLE_PATHS if packet_flow else [])
+        export_source(commands, repository, spec, target, apple_paths if name == "apple" else None)
     # Verify upstream bytes first; patch only this run's exported snapshot.
     # A new run re-exports from the unchanged cache, so no manual .local edit is needed.
     manifest = run / "wireguard-apple/Package.swift"
@@ -365,7 +390,10 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
     (run / "policy-settings.patch").write_text("".join(difflib.unified_diff(
         original.decode().splitlines(True), modified.decode().splitlines(True),
         fromfile="a/Sources/WireGuardKit/WireGuardAdapter.swift", tofile="b/Sources/WireGuardKit/WireGuardAdapter.swift")))
-    executable = compile_native(commands, tools, run, ROOT, fetch)
+    if packet_flow:
+        executable = compile_native(commands, tools, run, ROOT, fetch, packet_flow=True)
+    else:
+        executable = compile_native(commands, tools, run, ROOT, fetch)
     return dict(schema="wireguard-native-build-v1", result="PASS", tools=tools,
                 apple_revision=lock["apple"]["revision"], engine_revision=lock["engine"]["revision"],
                 lock_sha256=hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
@@ -375,6 +403,8 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
                 runtime_hook_blob=lock["runtime_hook_blob"], bridge=lock["bridge"],
                 bridge_lifecycle_tests="PASS", artifact=str(executable),
                 artifact_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
+                data_channel="PACKET_FLOW_CANDIDATE" if packet_flow else "DESCRIPTOR_CANDIDATE",
+                packet_flow_lock_sha256=(hashlib.sha256((ROOT / "third-party/wireguard-go/packet-flow-lock.json").read_bytes()).hexdigest() if packet_flow else None),
                 execution="NOT_RUN", provider="NOT_LINKED", runtime_approval="NOT_GRANTED",
                 network_settings="NOT_APPLIED", extension_activation="NOT_REQUESTED")
 
@@ -383,11 +413,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("preflight", "build"), nargs="?", default="preflight")
     parser.add_argument("--fetch", action="store_true", help="allow pinned public source/module downloads")
+    parser.add_argument("--packet-flow", action="store_true", help="build the public packetFlow candidate; never execute")
     args = parser.parse_args()
     run = None
     try:
-        if args.fetch and args.mode != "build":
-            raise BuildError("E_ARGUMENT: --fetch is only valid with build")
+        if (args.fetch or args.packet_flow) and args.mode != "build":
+            raise BuildError("E_ARGUMENT: --fetch/--packet-flow are only valid with build")
         lock = json.loads(LOCK_PATH.read_text())
         env = clean_environment(); commands = Commands(env)
         tools = preflight(commands, lock)  # No directories/downloads before this succeeds.
@@ -403,7 +434,8 @@ def main() -> int:
             env.update(GOPATH=str(output / "gopath"), GOCACHE=str(output / "gocache"),
                        GOMODCACHE=str(output / "gomodcache"), GIT_CEILING_DIRECTORIES=str(output))
             commands = Commands(env, run / "build.log")
-            result = build(commands, lock, tools, output, run, args.fetch)
+            result = (build(commands, lock, tools, output, run, args.fetch, packet_flow=True)
+                      if args.packet_flow else build(commands, lock, tools, output, run, args.fetch))
             (run / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
             print("schema=wireguard-native-build-v1\ncompile_link=PASS\nbridge_lifecycle_tests=PASS\nartifact_execution=NOT_RUN\n"
                   "provider=NOT_LINKED\nnetwork_settings=NOT_APPLIED\nextension_activation=NOT_REQUESTED")

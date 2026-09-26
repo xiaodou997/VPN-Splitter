@@ -1,0 +1,21 @@
+{
+  "schema": "packet-flow-build-v1",
+  "apple_revision": "2fec12a6e1f6e3460b6ee483aa00ad29cddadab1",
+  "engine_revision": "ecfc5a8d54462e18e13c72173e2623d16d8e25a0",
+  "upstream": {
+    "Sources/Shared/Model/TunnelConfiguration+WgQuickConfig.swift": "86af010c69c5f2dc59a3585386ad394af846705f",
+    "Sources/Shared/Model/String+ArrayConversion.swift": "97984f82ef0cfb5d19f20cd5be387260691ab61a",
+    "Sources/WireGuardKitGo/wireguard.h": "fdb66c2dee8ae74067501bc31dc6548e9d6f40cf"
+  },
+  "sources": {
+    "tools/wireguard/bridge/packet-flow-api.go": "3ab46164e5c8d70778403c7bf8c364d2402381e5",
+    "tools/wireguard/bridge/packet-flow-queue.go": "14d353c6b22ff2cf53d27e397072cc2aff2adac5",
+    "tools/wireguard/bridge/packet-flow-tun.go": "69a59b3ff606363bfe2b469105cccf9e94a9bcbc",
+    "tools/wireguard/bridge/packet-flow-queue_test.go": "068e156f9739d30eea29f9c7472a2aabd1329cdf",
+    "tools/wireguard/native/SplitterNativeConfiguration.swift": "aa51c61c5ab60387ef954566872da8cef99deb2a",
+    "tools/wireguard/native/SplitterPacketFlowBackend.swift": "71a0a131f0a72c9d61431ded4177e590b030d5ab",
+    "tools/wireguard/native/splitter-packet-flow.h": "6c521b72110525875d97accb6c5fcfb403cba380",
+    "integrations/wireguard/ManagedWireGuardNativeInput.swift": "8ba656f623441cfe8d885cfa7246f9e05f271282",
+    "tools/wireguard/packet_flow_assets.py": "e24ab576fbd4ba441694ccb72d6625f76eff7ba4"
+  }
+}
