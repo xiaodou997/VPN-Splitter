@@ -1,53 +1,68 @@
-# 统一开发入口与环境检查
+# 统一开发入口与当前开发状态
 
-当前为 WG-INT-05；从 `main` 拉取即可，历史补丁/ZIP 不需要处理。LocalDev 仍是 LD-03B，不接管网络。Python 仅做开发工具；Go 编译上游 WireGuard 引擎。最终应用不以用户安装这些编译工具为运行前提，正式发行包尚未提供。
+当前为 WG-INT-06；从 `main` 更新，不需要历史补丁或 ZIP。
+**48eee07 的 Mac 原生编译链接已获用户报告通过。** 详见[独立记录](evidence/wireguard-native-user-result.md)。
+这不是运行结果，也不能代替后续代码的原生验证；无需重复证明同一提交的同一结果。
 
-## 现在先做什么
-
-在仓库根目录执行：
-
-```sh
-git switch main &&
-git pull --ff-only &&
-/bin/bash dev.sh doctor engine
-```
-
-遇到 Git 冲突就停止并保留本地修改，不 force/reset/clean。doctor 不拉取 Git、不联网、不安装、不创建构建目录、不访问配置或 Keychain；一次列出可检查的全部项目，而不是修完一个才显示下一个。Xcode/Go 只运行版本查询，子命令有时间上限；缺失 Python 时由外层 Shell 给出错误和下一步，不显示 Python traceback。
-
-报告区分 `app_environment` 与 `engine_environment`。没有 Go 或 Go 版本不在候选范围，会阻止引擎构建，但不会把已满足条件的界面开发环境判为不合格。`compile_link=NOT_RUN` 始终显示：环境检查通过不是编译、运行或 VPN 验收。
+当前继续开发配置与规则到真实后端的连接路径，不是只剩测试或签名。
+本批新增[配置/分流/Adapter 组装](wireguard-assembly.md)，尚未将工作区凭据、
+可信描述符和正式 Provider 连通。LocalDev 仍是 LD-03B，不接管网络。
+OpenVPN 和应用内 External 后端尚未实际接入。真实握手、双出口、DNS 和撤销仍待验。
 
 ## 日常只记 dev.sh
 
 | 命令 | 行为 |
 | --- | --- |
-| `/bin/bash dev.sh` 或 `doctor` | 默认只读检查界面开发环境，同时把 Go 状态标为可选 |
-| `/bin/bash dev.sh doctor engine` | 检查完整引擎构建环境，Go 是必需项 |
+| `/bin/bash dev.sh` 或 `doctor` | 只读检查界面开发环境，Go 标为可选；不下载、不构建 |
+| `/bin/bash dev.sh doctor engine` | 汇总引擎构建环境缺项；Go 是必需项，不安装工具 |
 | `/bin/bash dev.sh run` | 原 LocalDev 构建/打开；不要求 Python 或 Go，不建立隧道 |
-| `/bin/bash dev.sh test` | 原 AppCore/LocalDev 离线回归，需要 Python 和 Swift，不需要 Go |
-| `/bin/bash dev.sh engine-test` | 设置完成/运行绑定/描述符租约与 Python 构建工具/入口回归；不执行 Go 生命周期测试，不需要 Go |
-| `/bin/bash dev.sh engine --fetch` | 环境检查通过后，下载固定公开源码，运行 Go 生命周期测试，再下载模块并编译链接候选；不运行 VPN 产物 |
-| `/bin/bash dev.sh engine` | 同上但只用缓存，缺缓存拒绝；不偷偷添加 --fetch |
+| `/bin/bash dev.sh test` | 原 AppCore/LocalDev 离线回归，需要 Python/Swift，不需要 Go |
+| `/bin/bash dev.sh engine-test` | WireGuardSupport 和 Python 构建/入口回归；不执行 ManagedSettings/Go 测试，不需要 Go |
+| `/bin/bash dev.sh engine --fetch` | 环境检查、固定公开源码下载、Go 生命周期测试、模块下载、原生编译链接；不运行 VPN 产物 |
+| `/bin/bash dev.sh engine` | 同上但只使用缓存；缺缓存拒绝，不自动添加 --fetch |
 
-旧 `tools/localdev/build.sh`、`tools/managed/test.sh`、`tools/wireguard/build.sh` 仍有效。统一入口不自行提交或推送 Git，不自动运行 S0 路由实验、签名命令或 Keychain 验收，不配置全局 PATH/Xcode/Go。
+原 `tools/localdev/build.sh`、`tools/managed/test.sh`、`tools/wireguard/build.sh` 仍有效。
+新 ManagedSettings 组装测试由 `tools/managed/test.sh` 自动发现；Mac 还运行原生设置
+对象测试，只分配对象，不安装设置。原生组装源由 engine 自动加入隔离探针编译。
 
-## 缺工具时
+需要更新并验证新的原生接线时，仍执行：
 
-界面构建需要 Apple Silicon/macOS 26+、完整 Xcode/SDK 26+。仅 Command Line Tools 不足以构建本工程。doctor/test/engine 工具需要 PATH 中的 Python 3.9+；仅打开和构建 LocalDev 不需要 Python。
+```sh
+git switch main &&
+git pull --ff-only &&
+/bin/bash dev.sh engine --fetch
+```
 
-引擎构建候选仍限 Go 1.26.8 或 1.27.1，读取 `third-party/wireguard-go/build-lock.json`，本轮没有更改这两个版本。开发机可从 [Go 官方下载](https://go.dev/dl/) 手动获取对应 macOS arm64 版本；版本依据 [官方发布记录](https://go.dev/doc/devel/release)（2026-09-26 复核）。Python 安装参考 [Python 官方 macOS 指南](https://docs.python.org/3/using/mac.html)。已有工具却找不到时，先重开终端并核对 PATH，不要为了构建绕过系统安全设置。
+Git 出现本地修改冲突或无法快进时保留工作并停止，不 reset、clean 或 force。
+统一入口本身不执行 git pull/提交/推送；不自动安装软件或更新全局 PATH/Xcode/Go。
+仅有 `engine_environment=PASS` 是环境检查，不是编译。完整成功仍以
+`compile_link=PASS` 为准；`artifact_execution=NOT_RUN`、`provider=NOT_LINKED` 是预期边界。
+`bridge_lifecycle_tests=PASS` 来自同一生命周期源码和内存设备，不是 VPN 认证。
 
-脚本不运行安装器、不使用 sudo、不自动升级 Go，也不自动下载 Go toolchain；保持 GOTOOLCHAIN=local。只运行界面开发时无需为本批安装 Go。用户同意技术路线不被解释为同意自动安装软件。
+## 环境与文件边界
 
-## 本批后端变化与未完成项
+界面/引擎要求 Apple Silicon、macOS 26+、完整 Xcode/macOS SDK 26+、Swift 6+。
+Python 3.9+ 只用于开发工具。引擎构建沿用锁文件中的 Go 1.26.8/1.27.1；本批
+不增加语言或安装要求。缺工具由 doctor 汇总，Shell 处理 Python 缺失/过旧；
+Go 不可用不阻断 `dev.sh run`。已安装但找不到时先检查 PATH 或重开终端。
 
-WG-INT-05 移除候选 Adapter 的 utun 描述符扫描，必须提供显式描述符租约与运行绑定；按当前 Provider/会话/generation/networkEpoch/凭据绑定复核，配置使用独立快照，失效后不复活。构建入口不变，详见 [运行绑定指南](wireguard-runtime-admission.md)、[ADR-017](adr/ADR-017-runtime-admission.md) 和 [本轮证据](evidence/wireguard-engine-05.md)。原生描述符的可信来源及 Provider 终止/撤销仍未完成，不能将名称匹配当所有权证明。
+工具安装由用户明确操作；参考 [Go 官方下载](https://go.dev/dl/) 和
+[Python macOS 指南](https://docs.python.org/3/using/mac.html)。脚本不使用 sudo、
+不运行安装器，不自动下载 Go toolchain，保持 GOTOOLCHAIN=local。
+--fetch 只允许固定 WireGuard 官方源、Go 模块代理/校验服务及服务重定向；
+不关闭 TLS/模块校验，不绕过网络策略，不读取用户 VPN 配置或 Keychain。
 
-候选 Adapter 新增设置完成的线程安全门控。同步回调、重复回调、超时和迟到完成有独立处理；设置失败或超时不能继续启动协议。已知非零 wgSetConfig 返回码会报错，不再报告成功。发生不确定设置/更新后，Adapter 标记需 Provider 重建，停止其已知协议句柄和网络监视，拒绝在同实例直接重试。
+失败结果留在当次 `.local/wireguard-engine/build.*`，不以旧产物顶替失败。
+不编辑或删除旧构建目录、源码缓存、build.lock、工作区 JSON 或 Keychain 来处理
+构建失败；锁在进程退出时释放，文件保留。错误只需反馈阶段和片段，不上传全量日志。
 
-**超时不是取消系统操作，停止协议也不是系统路由已撤销。** 本轮不以立即清空设置来假装回滚，更不创建新的 Adapter 自动重试；正式 Provider 的终止/撤销观察仍待实现与签名真机验证。本批 Go 桥接层已提供 Up 返回值检查、单活动对象、非复用标识、更新失败关闭、可取消的重绑工作和关闭后的隔离；其 Darwin fd/TUN/C ABI 行为仍待原生验证。正确 utun 归属、Swift 层日志过滤、传递依赖安全和许可审查仍开放。
+## 下一阶段门槛
 
-新 Swift 门控源与受控变换源码均记录在候选锁中，构建时检验后把同一 Swift 文件复制进隔离 WireGuardKit。原上游和第一阶段策略补丁的 SHA 约束保留；后端从未接入 LocalDev/正式 Provider，运行批准仍为 NOT_GRANTED。本批桥接层、构建测试和边界见 [WG-INT-04 指南](wireguard-bridge.md)与[证据](evidence/wireguard-engine-04.md)；此前设置完成门控见 [WG-INT-03 证据](evidence/wireguard-engine-03.md)。
+正式 Provider 的配置/凭据交付、可信隧道来源、失效控制和停止后的设置撤销仍未完成。
+显式描述符名字一致不是所属 Provider 的证明；版本复核不是系统观察器；
+停止协议不证明路由已撤销，超时也不取消已提交的 OS 操作。
+开发签名在首次真实 Managed 联调前恢复，发行签名/公证/DMG 留到发行验证。
 
-新入口和这些候选源代码不改变工作区/凭据版本，不修改原 .conf，不激活扩展或改变路由/DNS。开发签名仍暂停。源码回撤使用后继提交，用户数据不需要清理或回滚。
-
-`dev.sh engine --fetch` 已包含新的 Go 生命周期回归，不增加一条需要手工运行的命令。它只针对同一生命周期源码和内存设备替身，不启动 TUN 或协议。失败时不继续下载 Go 模块或进行原生编译；成功的结果文件新增 `bridge_lifecycle_tests=PASS`，仍须区分 `compile_link=PASS` 与真实 VPN。
+本轮不改工作区/凭据格式、原 .conf、UI、正式 Provider、Go 核心或已有补丁链。
+源码回撤用正常后继提交，不改写历史。新测试和未测项见
+[WG-INT-06 证据](evidence/wireguard-assembly-06.md)与[ADR-018](adr/ADR-018-wireguard-plan-assembly.md)。

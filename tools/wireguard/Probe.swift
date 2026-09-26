@@ -2,6 +2,7 @@
 import ManagedSettings
 import ManagedSettingsApple
 import NetworkExtension
+import PolicyCore
 import WireGuardKit
 
 // Compile-time API probe, never called. Live callers must establish that the
@@ -23,6 +24,20 @@ func checkPolicyInjectionSignature(provider: NEPacketTunnelProvider,
         }, logHandler: { _, _ in
             // No raw engine, endpoint or credential logging in this probe.
         })
+}
+
+// This second API check exercises the real configuration-to-policy assembly.
+// It is also uncalled: compilation cannot become a VPN start or a Keychain read.
+@MainActor
+func checkAssembledPolicySignature(provider: NEPacketTunnelProvider,
+                                  configuration: TunnelConfiguration, policy: IPv4Policy,
+                                  underlay: IPv4ConstraintInput, dns: WireGuardDNSSelection,
+                                  revision: SplitterRuntimeRevision,
+                                  currentRevision: @escaping () -> SplitterRuntimeRevision?,
+                                  descriptor: @escaping () throws -> SplitterTunnelDescriptorLease) throws -> ManagedWireGuardAssembly {
+    try ManagedWireGuardAssembly.prepareForIntegration(provider: provider, configuration: configuration,
+        policy: policy, underlay: underlay, dnsSelection: dns, revision: revision,
+        currentRevision: currentRevision, descriptor: descriptor)
 }
 
 // The build script never runs this executable. No descriptor is discovered here.

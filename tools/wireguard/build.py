@@ -26,7 +26,7 @@ import tempfile
 from contextlib import contextmanager
 from policy_hook import git_blob, patch_adapter, patch_manifest
 from runtime_hook import checked_support, patch_runtime_adapter
-from bridge_assets import checked_bridge, stage_bridge
+from bridge_assets import checked_bridge, stage_bridge, read_ordinary
 from c_header_hook import prepare_c_header
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -241,26 +241,32 @@ def tree_files(listing: str) -> dict[str, str]:
 
 
 def create_probe(probe: Path, root: Path) -> None:
+    integration = read_ordinary(root, "integrations/wireguard/ManagedWireGuardAssembly.swift")
     probe.mkdir(mode=0o700)
     # JSON escaping is valid for Swift string literals for ordinary filesystem paths.
     managed = json.dumps(str(root / "Packages/ManagedSettings"), ensure_ascii=False)
+    policy = json.dumps(str(root / "Packages/PolicyCore"), ensure_ascii=False)
     manifest = '''// swift-tools-version: 6.0
 import PackageDescription
 let package = Package(
     name: "WGLinkProbe", platforms: [.macOS("26.0")],
-    dependencies: [.package(path: "../wireguard-apple"), .package(path: MANAGED_PATH)],
+    dependencies: [.package(path: "../wireguard-apple"), .package(path: MANAGED_PATH),
+                   .package(path: POLICY_PATH)],
     targets: [.executableTarget(name: "WGLinkProbe", dependencies: [
         .product(name: "WireGuardKit", package: "wireguard-apple"),
         .product(name: "ManagedSettings", package: "ManagedSettings"),
-        .product(name: "ManagedSettingsApple", package: "ManagedSettings")
+        .product(name: "ManagedSettingsApple", package: "ManagedSettings"),
+        .product(name: "PolicyCore", package: "PolicyCore")
     ], linkerSettings: [.linkedLibrary("resolv"), .linkedFramework("Security"),
                          .linkedFramework("CoreFoundation")])],
     swiftLanguageModes: [.v6]
 )
-'''.replace("MANAGED_PATH", managed)
+'''.replace("MANAGED_PATH", managed).replace("POLICY_PATH", policy)
     (probe / "Package.swift").write_text(manifest)
     sources = probe / "Sources/WGLinkProbe"; sources.mkdir(parents=True, mode=0o700)
     shutil.copyfile(root / "tools/wireguard/Probe.swift", sources / "main.swift")
+    with (sources / "ManagedWireGuardAssembly.swift").open("xb") as destination:
+        destination.write(integration)
 
 
 def require_symbols(text: str) -> None:
