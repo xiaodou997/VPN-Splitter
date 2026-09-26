@@ -62,5 +62,6 @@
     "review_patch_blob": "dde3e55a28aef38b6116c3ccd75f162d5c83470e"
   },
   "runtime_adapter_blob": "d349ebe6eb7e07062cb1cf4007dada150465c008",
-  "admission_patch_blob": "2a7c3fd2f750184517c45f4de96a4038a5609c21"
+  "admission_patch_blob": "2a7c3fd2f750184517c45f4de96a4038a5609c21",
+  "patched_manifest_blob": "47618ff08764067d623428d749594167a14032cf"
 }

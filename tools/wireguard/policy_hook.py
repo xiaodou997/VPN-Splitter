@@ -54,3 +54,19 @@ def patch_adapter(data: bytes) -> bytes:
     if git_blob(result) != PATCHED_ADAPTER_BLOB:
         raise ValueError("E_WG_PATCH_RESULT_CHANGED")
     return result
+
+
+MANIFEST_BLOB = "5d15a1b0dd840942a03219034e17c8b5a3d2db38"
+PATCHED_MANIFEST_BLOB = "47618ff08764067d623428d749594167a14032cf"
+
+
+def patch_manifest(data: bytes) -> bytes:
+    """Fix the pinned manifest API level, without changing platforms or targets."""
+    if git_blob(data) != MANIFEST_BLOB:
+        raise ValueError("E_WG_UPSTREAM_MANIFEST_CHANGED")
+    # .macOS(.v12) and .iOS(.v15) require PackageDescription 5.5. This does
+    # not select Swift 6 language mode or change the app's macOS 26 minimum.
+    result = data.replace(b"// swift-tools-version:5.3\n", b"// swift-tools-version:5.5\n", 1)
+    if git_blob(result) != PATCHED_MANIFEST_BLOB:
+        raise ValueError("E_WG_MANIFEST_RESULT_CHANGED")
+    return result

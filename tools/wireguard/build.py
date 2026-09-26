@@ -24,7 +24,7 @@ import sys
 import tarfile
 import tempfile
 from contextlib import contextmanager
-from policy_hook import git_blob, patch_adapter
+from policy_hook import git_blob, patch_adapter, patch_manifest
 from runtime_hook import checked_support, patch_runtime_adapter
 from bridge_assets import checked_bridge, stage_bridge
 
@@ -334,6 +334,15 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
         repository = source_repository(commands, cache, name, spec, fetch)
         target = run / ("wireguard-apple" if name == "apple" else "wireguard-go")
         export_source(commands, repository, spec, target, APPLE_PATHS if name == "apple" else None)
+    # Verify upstream bytes first; patch only this run's exported snapshot.
+    # A new run re-exports from the unchanged cache, so no manual .local edit is needed.
+    manifest = run / "wireguard-apple/Package.swift"
+    if manifest.is_symlink():
+        raise BuildError("E_WG_MANIFEST_PATH")
+    modified_manifest = patch_manifest(manifest.read_bytes())
+    if git_blob(modified_manifest) != lock["patched_manifest_blob"]:
+        raise BuildError("E_WG_MANIFEST_LOCK")
+    manifest.write_bytes(modified_manifest)
     adapter = run / "wireguard-apple/Sources/WireGuardKit/WireGuardAdapter.swift"
     original = adapter.read_bytes(); modified = patch_runtime_adapter(patch_adapter(original))
     adapter.write_bytes(modified)
@@ -347,6 +356,7 @@ def build(commands: Commands, lock: dict, tools: dict, output: Path, run: Path, 
     return dict(schema="wireguard-native-build-v1", result="PASS", tools=tools,
                 apple_revision=lock["apple"]["revision"], engine_revision=lock["engine"]["revision"],
                 lock_sha256=hashlib.sha256(LOCK_PATH.read_bytes()).hexdigest(),
+                patched_manifest_blob=git_blob(modified_manifest),
                 patched_adapter_blob=git_blob(modified), settings_completion_blob=git_blob(support),
                 runtime_hook_blob=lock["runtime_hook_blob"], bridge=lock["bridge"],
                 bridge_lifecycle_tests="PASS", artifact=str(executable),

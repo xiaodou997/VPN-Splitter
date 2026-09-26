@@ -118,6 +118,7 @@ class RuntimePatchTests(unittest.TestCase):
                 if paths:
                     f = target / 'Sources/WireGuardKit/WireGuardAdapter.swift'
                     f.parent.mkdir(parents=True); f.write_bytes(b'FAKE SOURCE')
+                    shutil.copyfile(ROOT / 'tests/fixtures/wireguard-build/Package.swift.reference', target / 'Package.swift')
             def policy(data): calls.append(('policy', data)); return b'FAKE POLICY'
             def runtime(data): calls.append(('runtime', data)); return b'FAKE GUARDED'
             def compile(commands, tools, path, project, fetch):
@@ -131,6 +132,7 @@ class RuntimePatchTests(unittest.TestCase):
                 result = native.build(None, LOCK, {}, root, run, False)
             self.assertEqual(calls, [('policy', b'FAKE SOURCE'), ('runtime', b'FAKE POLICY')])
             self.assertEqual(result['settings_completion_blob'], LOCK['settings_completion_blob'])
+            self.assertEqual(result['patched_manifest_blob'], LOCK['patched_manifest_blob'])
             self.assertEqual(result['execution'], 'NOT_RUN')
             self.assertEqual(result['runtime_approval'], 'NOT_GRANTED')
 
