@@ -58,12 +58,12 @@ private final class ManagedSystemPreferences: ManagedPreferenceStore {
         let configuration = NETunnelProviderProtocol()
         configuration.providerBundleIdentifier = providerID
         configuration.username = String(ownerUID) // Public owner binding, NOT an authentication claim.
-        configuration.serverAddress = "managed.invalid" // Placeholder; this milestone does not connect.
+        configuration.serverAddress = "managed.invalid" // Display-only. The authenticated configuration supplies the real endpoint.
         configuration.providerConfiguration = ManagedLaunchContract.providerConfiguration(for: new.profile)
         configuration.passwordReference = new.persistentReference
         configuration.includeAllNetworks = false; configuration.enforceRoutes = false
         manager.protocolConfiguration = configuration
-        manager.localizedDescription = "VPN-Splitter Managed · credential delivery check"
+        manager.localizedDescription = "VPN-Splitter Managed · IPv4 preview"
         manager.isEnabled = true; manager.isOnDemandEnabled = false; manager.onDemandRules = []
         let write = UUID(); pendingWrite = write
         // A timeout leaves pendingWrite set until the real callback settles. No read,
@@ -95,8 +95,9 @@ private final class ManagedSystemPreferences: ManagedPreferenceStore {
     }
     func stopSubmitted() {
         submitted?.connection.stopVPNTunnel()
-        submitted = nil // A stop request is not proof of system restoration.
+        // Keep the manager for status observation; a request is not restoration.
     }
+    var submittedStatus: NEVPNStatus { submitted?.connection.status ?? .invalid }
     private func terminal(_ manager: NETunnelProviderManager) -> Bool {
         manager.connection.status == .invalid || manager.connection.status == .disconnected
     }
@@ -144,10 +145,23 @@ public final class ManagedAppWorkflow {
         }
         _ = try await transaction.save(material)
     }
-    /// Executes authenticated hello -> current-record Keychain read -> one-shot stage
-    /// -> fresh preference check -> actual NE submission. Provider still rejects the
-    /// missing engine after consuming/discarding the delivery. No secret in NE options.
-    public func checkDelivery() async throws -> UUID {
+    public var runtimeAvailable: Bool { Bundle.main.object(forInfoDictionaryKey: "VPNPacketFlowRuntime") as? Bool == true }
+    public var connectionStateText: String {
+        switch store.submittedStatus {
+        case .connected: return "系统报告已连接；握手与分流出口尚未验证"
+        case .connecting: return "连接中：等待设置与引擎启动"
+        case .disconnecting: return "断开中：不能视为系统已恢复"
+        case .reasserting: return "系统重新协调中：本版本不会自动重连"
+        default: return "未连接；路由与 DNS 恢复未独立核查"
+        }
+    }
+    /// Old callers remain check-only. Only the distinct explicit action sends run-v2.
+    public func checkDelivery() async throws -> UUID { try await deliver(purpose: .check) }
+    public func connect() async throws -> UUID {
+        guard runtimeAvailable else { throw ManagedTransferError.unavailable }
+        return try await deliver(purpose: .run)
+    }
+    private func deliver(purpose: ManagedDeliveryPurpose) async throws -> UUID {
         let grant = try await transaction.authorizeDelivery()
         let client = ManagedXPCClient(identity: identity)
         slot.client = client
@@ -161,14 +175,28 @@ public final class ManagedAppWorkflow {
             let material = try checked.withValidatedSource {
                 try ManagedCredentialMaterial(configuration: $0, policyArchive: $1)
             }
-            let envelope = try ManagedDeliveryEnvelope(challenge: challenge, grant: grant, material: material)
+            let envelope = try ManagedDeliveryEnvelope(challenge: challenge, grant: grant, material: material, purpose: purpose)
             try await client.stage(envelope)
             try await transaction.validateForStart(grant)
             guard slot.client === client else { throw ManagedTransferError.cancelled }
             try store.submit(grant)
-            // The server independently expires the connection and any unclaimed payload.
+            // An unconsumed stage still expires server-side. A consumed run keeps the
+            // authenticated channel until explicit cancel/exit or terminal system state.
             Task { @MainActor [weak self, weak client] in
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                if purpose == .check {
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                } else {
+                    let deadline = ContinuousClock.now.advanced(by: .seconds(25))
+                    var sawActive = false
+                    while let self, self.slot.client === client {
+                        do { try await Task.sleep(for: .milliseconds(250)) } catch { break }
+                        let status = self.store.submittedStatus
+                        if status != .invalid && status != .disconnected { sawActive = true }
+                        if status == .invalid || status == .disconnected {
+                            if sawActive || ContinuousClock.now >= deadline { break }
+                        } else if status != .connected && ContinuousClock.now >= deadline { break }
+                    }
+                }
                 client?.close(); self?.transaction.finishDelivery(grant)
             }
             return grant.request.attemptID

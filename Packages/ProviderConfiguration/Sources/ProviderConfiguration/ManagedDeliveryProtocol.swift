@@ -63,25 +63,35 @@ struct ManagedDeliveryEnvelope: Sendable, CustomStringConvertible, CustomDebugSt
     let request: ManagedStartRequest
     let reference: Data
     let material: ManagedCredentialMaterial
-    init(challenge: ManagedDeliveryChallenge, grant: ManagedDeliveryAuthorization, material: ManagedCredentialMaterial) throws {
+    let purpose: ManagedDeliveryPurpose
+    init(challenge: ManagedDeliveryChallenge, grant: ManagedDeliveryAuthorization, material: ManagedCredentialMaterial,
+         purpose: ManagedDeliveryPurpose = .check) throws {
         guard challenge.ownerUID == grant.handle.ownerUID else { throw ManagedTransferError.invalidIdentity }
         self.challenge = challenge; request = grant.request
-        reference = grant.handle.persistentReference; self.material = material
+        reference = grant.handle.persistentReference; self.material = material; self.purpose = purpose
     }
     func encodedForAuthenticatedXPC() throws -> Data {
         try material.withContents { configuration, policy in
-            try ManagedWire.encode([
-                "schema": "managed-delivery-v1", "challenge": challenge.fields,
+            var fields: [String: Any] = [
+                "schema": purpose == .run ? "managed-delivery-v2" : "managed-delivery-v1", "challenge": challenge.fields,
                 "request": request.propertyList, "reference": reference,
                 "configuration": configuration, "policy": policy
-            ], maximum: Self.maximumBytes)
+            ]
+            if purpose == .run { fields["purpose"] = "run" }
+            return try ManagedWire.encode(fields, maximum: Self.maximumBytes)
         }
     }
     init(authenticatedXPCData data: Data) throws {
         do {
             let fields = try ManagedWire.decode(data, maximum: Self.maximumBytes)
-            guard Set(fields.keys) == ["schema", "challenge", "request", "reference", "configuration", "policy"],
-                  fields["schema"] as? String == "managed-delivery-v1",
+            let base: Set<String> = ["schema", "challenge", "request", "reference", "configuration", "policy"]
+            if fields["schema"] as? String == "managed-delivery-v1", Set(fields.keys) == base {
+                purpose = .check
+            } else if fields["schema"] as? String == "managed-delivery-v2",
+                      Set(fields.keys) == base.union(["purpose"]), fields["purpose"] as? String == "run" {
+                purpose = .run
+            } else { throw ManagedTransferError.invalidMessage }
+            guard
                   let challenge = fields["challenge"] as? [String: String],
                   let request = fields["request"] as? [String: String],
                   let reference = fields["reference"] as? Data, !reference.isEmpty,
@@ -106,7 +116,10 @@ public struct ManagedReceivedConfiguration: Sendable, CustomStringConvertible, C
     public let request: ManagedStartRequest
     public let ownerUID: UInt32
     public let material: ManagedCredentialMaterial
-    init(_ envelope: ManagedDeliveryEnvelope) {
+    public let purpose: ManagedDeliveryPurpose
+    public let authorization: ManagedRunAuthorization?
+    init(_ envelope: ManagedDeliveryEnvelope, authorization: ManagedRunAuthorization? = nil) {
+        purpose = envelope.purpose; self.authorization = authorization
         request = envelope.request; ownerUID = envelope.challenge.ownerUID; material = envelope.material
     }
     public var description: String { "ManagedReceivedConfiguration(<redacted>; not-runtime-validated)" }
@@ -131,12 +144,13 @@ final class ManagedDeliveryBroker {
     private var channels: [UUID: Channel] = [:]
     private var attempts: Set<UUID> = []
     private var staged: UUID?
+    private var active: (connection: UUID, attempt: UUID, authorization: ManagedRunAuthorization)?
     init(now: @escaping @MainActor () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.now = now }
 
     func open(connection: UUID, kernelUID: UInt32, isLive: @escaping @Sendable () -> Bool = { true }) throws -> ManagedDeliveryChallenge {
         purge()
         guard kernelUID > 0 else { throw ManagedTransferError.invalidIdentity }
-        guard channels[connection] == nil else { throw ManagedTransferError.replay }
+        guard channels[connection] == nil, active?.connection != connection else { throw ManagedTransferError.replay }
         guard channels.count < 8, attempts.count < 256 else { throw ManagedTransferError.capacity }
         let challenge = ManagedDeliveryChallenge(instance: instance, ownerUID: kernelUID)
         channels[connection] = Channel(challenge: challenge, deadline: now() + Self.lifetime, isLive: isLive)
@@ -152,7 +166,7 @@ final class ManagedDeliveryBroker {
         do { envelope = try ManagedDeliveryEnvelope(authenticatedXPCData: data) }
         catch { close(connection); throw ManagedTransferError.invalidMessage }
         guard envelope.challenge == channel.challenge else { close(connection); throw ManagedTransferError.invalidIdentity }
-        guard staged == nil else { close(connection); throw ManagedTransferError.busy }
+        guard staged == nil, active == nil else { close(connection); throw ManagedTransferError.busy }
         guard !attempts.contains(envelope.request.attemptID), attempts.count < 256 else {
             close(connection); throw ManagedTransferError.replay
         }
@@ -169,13 +183,28 @@ final class ManagedDeliveryBroker {
         guard envelope.challenge.ownerUID == ownerUID, envelope.request == launch.request, envelope.reference == launch.credentialReference else {
             throw ManagedTransferError.selectionChanged
         }
+        if envelope.purpose == .run {
+            let authorization = ManagedRunAuthorization(connectionIsLive: channel.isLive)
+            guard authorization.isCurrent() else { throw ManagedTransferError.connectionClosed }
+            active = (id, envelope.request.attemptID, authorization)
+            return ManagedReceivedConfiguration(envelope, authorization: authorization)
+        }
         return ManagedReceivedConfiguration(envelope)
     }
     func close(_ connection: UUID) {
+        if active?.connection == connection { active?.authorization.invalidate(); active = nil }
         channels.removeValue(forKey: connection)
         if staged == connection { staged = nil }
     }
-    func discard() { channels.removeAll(); staged = nil } // Tombstones intentionally survive.
+    func hasActiveConnection(_ id: UUID) -> Bool { active?.connection == id && active?.authorization.isCurrent() == true }
+    func endRun(_ attempt: UUID) -> UUID? {
+        guard let active, active.attempt == attempt else { return nil }
+        close(active.connection); return active.connection
+    }
+    func discard() {
+        active?.authorization.invalidate(); active = nil
+        channels.removeAll(); staged = nil // Tombstones intentionally survive.
+    }
     func purge() {
         let expired = channels.filter { $0.value.deadline <= now() || !$0.value.isLive() }.map(\.key)
         for id in expired { close(id) }

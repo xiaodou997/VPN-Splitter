@@ -143,9 +143,15 @@ private final class ManagedXPCListener: NSObject, NSXPCListenerDelegate, @unchec
         // Also bound clients that connect but never send hello. No permanent secret inbox.
         Task { @MainActor [weak connection] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
-            alive.close(); broker.close(id); connection?.invalidate()
+            // Only an already consumed, explicit run is promoted beyond staging expiry.
+            // The kernel connection remains the revocation source; no timer renews it.
+            if !broker.hasActiveConnection(id) { alive.close(); broker.close(id); connection?.invalidate() }
         }
         return true
+    }
+    func end(_ id: UUID) {
+        lock.lock(); let connection = connections.removeValue(forKey: id); lock.unlock()
+        connection?.invalidate()
     }
     private func remove(_ id: UUID) { lock.lock(); connections.removeValue(forKey: id); lock.unlock() }
 }
@@ -175,7 +181,15 @@ public final class ManagedExtensionRuntime {
         }
     }
     public func consume(_ launch: CheckedManagedLaunch, ownerUID: UInt32) throws -> ManagedReceivedConfiguration {
-        try broker.consume(launch, ownerUID: ownerUID)
+        let received = try broker.consume(launch, ownerUID: ownerUID)
+        if received.purpose == .run, Bundle.main.object(forInfoDictionaryKey: "VPNPacketFlowRuntime") as? Bool != true {
+            received.authorization?.invalidate(); finishRun(launch.request.attemptID)
+            throw ManagedTransferError.unavailable
+        }
+        return received
+    }
+    public func finishRun(_ attempt: UUID) {
+        if let id = broker.endRun(attempt) { listener?.end(id) }
     }
     public func discard() { broker.discard() }
 }

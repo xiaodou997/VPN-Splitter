@@ -12,13 +12,17 @@ final class ManagedConfigurationModel: ObservableObject {
     @Published var fileSelected = false
     @Published var saveConsent = false
     @Published var deliveryConsent = false
+    @Published var runConsent = false
+    @Published var liveStatus = "未提交连接；网络恢复未核查"
     @Published var busy = false
-    @Published var message = "先载入当前正式配置，再选择 .conf 并填写 IPv4 VPN 网段。这里保存的是交付草稿，不建立 VPN。"
+    @Published var message = "先载入当前正式配置，再选择 .conf 并填写 IPv4 VPN 网段。保存不会自动连接。"
     @Published var generation: UInt64?
     @Published var selectionLoaded = false
+    var runtimeAvailable: Bool { Bundle.main.object(forInfoDictionaryKey: "VPNPacketFlowRuntime") as? Bool == true }
     private var configuration: Data?
     private var workflow: ManagedAppWorkflow?
     private var operation: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
     private var epoch = UUID()
 
     private func control() throws -> ManagedAppWorkflow {
@@ -40,7 +44,6 @@ final class ManagedConfigurationModel: ObservableObject {
             configuration = bytes; fileSelected = true; saveConsent = false
             message = "配置已通过格式与首轮范围检查，尚未保存；保存时还会检查网段、AllowedIPs 和基础设施冲突。没有建立 VPN。"
         } catch {
-            // A rejected replacement must not leave the prior file armed for saving.
             configuration = nil; fileSelected = false; saveConsent = false
             message = (error as? ManagedWireGuardInputError ?? .file).message
         }
@@ -70,13 +73,29 @@ final class ManagedConfigurationModel: ObservableObject {
         perform { model in
             let control = try model.control()
             let attempt = try await control.checkDelivery()
-            return "XPC 已确认暂存，启动请求已提交。attempt=\(attempt.uuidString)。须查看 Provider 接收日志；引擎未接通，预期受控失败，不表示 VPN 连接成功。"
+            return "交付检查已提交。attempt=\(attempt.uuidString)。此操作不连接 VPN；预期返回受控检查结果。"
+        }
+    }
+    func connect() {
+        guard selectionLoaded, runConsent, runtimeAvailable else { return }
+        perform { model in
+            let control = try model.control()
+            let attempt = try await control.connect()
+            model.statusTask?.cancel()
+            model.statusTask = Task { @MainActor [weak model] in
+                while !Task.isCancelled {
+                    guard let model else { return }
+                    model.liveStatus = control.connectionStateText
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                }
+            }
+            return "真实连接请求已提交。attempt=\(attempt.uuidString)。请以系统状态、握手和实际双出口分别验收；提交不代表成功。"
         }
     }
     func cancel() {
         epoch = UUID(); operation?.cancel(); workflow?.cancel()
-        configuration = nil; fileSelected = false; saveConsent = false
-        message = "已取消交付授权，并请求停止本次已提交的会话。保存回调未结束时仍需等待其结果；不表示系统网络已恢复。"
+        configuration = nil; fileSelected = false; saveConsent = false; runConsent = false
+        message = "已撤销交付和运行授权，并请求停止本次会话。保存或停止回调未结束时不能视为系统已恢复。"
     }
     private func perform(_ body: @escaping @MainActor (ManagedConfigurationModel) async throws -> String) {
         guard !busy else { return }
@@ -105,9 +124,10 @@ final class ManagedConfigurationModel: ObservableObject {
 struct ManagedConfigurationView: View {
     @ObservedObject private var model = ManagedConfigurationModel.shared
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            Text("正式配置与凭据交付联调").font(.title2)
-            Text("首轮只接受单 Peer、IPv4 数字端点、无 DNS 字段的 Include 配置。保存及交付都会检查脚本、密钥格式、AllowedIPs 和规则冲突；此页仍不建立 VPN。")
+            Text("正式配置与 WireGuard IPv4 联调").font(.title2)
+            Text("首轮只接受单 Peer、IPv4 数字端点、无 DNS 字段的 Include 配置。保存及交付都会检查脚本、密钥格式、AllowedIPs 和规则冲突。")
             HStack {
                 Button("选择 .conf") { model.selectConfiguration() }
                 Text(model.fileSelected ? "配置已在内存选择" : "未选择配置")
@@ -120,17 +140,24 @@ struct ManagedConfigurationView: View {
             Button("保存并选择该配置") { model.save() }
                 .disabled(model.busy || !model.selectionLoaded || !model.saveConsent || !model.fileSelected)
             Divider()
-            Text("交付使用当前已保存版本；上方未保存的输入不参与交付。")
+            Text("交付和连接使用当前已保存版本；上方未保存的输入不参与。")
             Toggle("已完成签名及扩展授权、断开其他 VPN，并同意运行凭据交付检查", isOn: $model.deliveryConsent)
-            HStack {
-                Button("检查凭据交付（不连接 VPN）") { model.checkDelivery() }
-                    .disabled(model.busy || !model.selectionLoaded || !model.deliveryConsent)
-                Button("取消交付 / 请求停止") { model.cancel() }
+            Button("检查凭据交付（不连接 VPN）") { model.checkDelivery() }
+                .disabled(model.busy || !model.selectionLoaded || !model.deliveryConsent)
+            if model.runtimeAvailable {
+                Toggle("确认在受控环境实际连接，并允许应用 IPv4 路由；已有恢复入口，了解无 Kill Switch、IPv6 未覆盖", isOn: $model.runConsent)
+                Button("连接 WireGuard（IPv4 测试）") { model.connect() }
+                    .disabled(model.busy || !model.selectionLoaded || !model.runConsent)
+            } else {
+                Text("当前为交付检查构建；真实连接使用 provider-build 生成的集成构建。")
             }
+            Button("取消 / 断开本次会话") { model.cancel() }
+            Text(model.liveStatus).textSelection(.enabled)
             Text(model.message).textSelection(.enabled)
-            Text("不是 LocalDev：不会读取或放宽 LocalDev 的旧凭据权限。没有已验证的隧道数据通道、握手或分流出口。")
+            Text("不是 LocalDev。不读取其旧凭据。系统已连接不等于握手或分流验证通过；停止回调不等于路由/DNS 恢复。")
                 .font(.footnote)
-        }.padding(24).frame(minWidth: 760, minHeight: 600)
+        }.padding(24)
+        }.frame(minWidth: 760, minHeight: 600)
     }
 }
 

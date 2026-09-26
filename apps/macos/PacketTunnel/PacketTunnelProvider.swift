@@ -5,8 +5,11 @@ import PolicyCore
 import ProviderConfiguration
 import os
 
-final class PacketTunnelProvider: NEPacketTunnelProvider {
+final class PacketTunnelProvider: NEPacketTunnelProvider, @unchecked Sendable {
     static let log = Logger(subsystem: "io.github.xiaodou997.VPNSplitter.S1", category: "packet-tunnel")
+    #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+    @MainActor private var flowSession: ManagedPacketFlowSession?
+    #endif
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         // Route explicit Managed requests first so mixed smoke/Managed options cannot
         // skip the strict boundary. This branch is the actual extension entry, not a probe.
@@ -20,7 +23,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 userInfo: [NSLocalizedDescriptionKey: "Only the explicit S1 smoke test is supported."]))
             return
         }
-        // Exercise the local package linkage without creating network settings or reading packets.
         guard (try? IPv4CIDR("198.51.100.7/24"))?.description == "198.51.100.0/24" else {
             completionHandler(NSError(domain: "VPNSplitter.S1", code: 1003))
             return
@@ -36,9 +38,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         #endif
         do {
             guard let configuration = protocolConfiguration as? NETunnelProviderProtocol,
-                  let providerID = Bundle.main.bundleIdentifier else {
-                throw ManagedLaunchError.invalidContainer
-            }
+                  let providerID = Bundle.main.bundleIdentifier else { throw ManagedLaunchError.invalidContainer }
             launch = try ManagedLaunchContract.check(
                 providerBundleIdentifier: configuration.providerBundleIdentifier,
                 expectedProviderBundleIdentifier: providerID,
@@ -59,24 +59,57 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let requestedUID = ownerUID
         Task { @MainActor in
             do {
+                #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+                guard self.flowSession == nil else {
+                    reply.finish(NSError(domain: "VPNSplitter.Runtime", code: 2010)); return
+                }
+                #endif
                 guard let ownerUID = requestedUID, let runtime = ManagedExtensionRuntime.shared else {
                     throw ManagedTransferError.deliveryMissing
                 }
                 let received = try runtime.consume(launch, ownerUID: ownerUID)
-                // Authentication and semantic admission are separate. Validate actual bytes
-                // here even when an older/signed App claims it already checked its input.
-                Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_CONSUMED attempt=\(launch.request.attemptID.uuidString, privacy: .public) backend=NOT_CONNECTED network_settings=NOT_APPLIED")
-                let checked = try received.withContents {
-                    try ManagedWireGuardInput.prepare(configuration: $0, policyArchive: $1)
+                let admitted: CheckedManagedWireGuardInput
+                do {
+                    admitted = try received.material.withContents {
+                        try ManagedWireGuardInput.prepare(configuration: $0, policyArchive: $1)
+                    }
+                } catch {
+                    #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+                    runtime.finishRun(launch.request.attemptID)
+                    #endif
+                    Self.log.notice("MANAGED_MATERIAL_REJECTED network_settings=NOT_APPLIED")
+                    reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2004,
+                        userInfo: [NSLocalizedDescriptionKey: "WireGuard configuration or policy was rejected. No VPN was started."]))
+                    return
                 }
-                _ = checked // Typed source + policy; NOT native conversion or an installable plan.
-                Self.log.notice("MANAGED_INPUT_VALIDATED attempt=\(launch.request.attemptID.uuidString, privacy: .public) network_settings=NOT_APPLIED")
+                #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+                if received.purpose == .run {
+                    do {
+                        let session = try ManagedPacketFlowSession.make(provider: self, input: admitted, received: received,
+                            event: { value in Self.log.notice("WG_RUNTIME event=\(value, privacy: .public)") })
+                        self.flowSession = session
+                        session.start { result in
+                            switch result {
+                            case .success:
+                                Self.log.notice("WG_RUNTIME_ENGINE_READY attempt=\(launch.request.attemptID.uuidString, privacy: .public) handshake=NOT_VERIFIED")
+                                reply.finish(nil)
+                            case .failure:
+                                reply.finish(NSError(domain: "VPNSplitter.Runtime", code: 2011,
+                                    userInfo: [NSLocalizedDescriptionKey: "WireGuard startup failed or was cancelled. System recovery must be checked independently."]))
+                            }
+                        }
+                    } catch {
+                        received.authorization?.invalidate(); runtime.finishRun(launch.request.attemptID)
+                        reply.finish(NSError(domain: "VPNSplitter.Runtime", code: 2010,
+                            userInfo: [NSLocalizedDescriptionKey: "Another runtime attempt is active or authorization is unavailable."]))
+                    }
+                    return
+                }
+                #endif
+                _ = admitted
+                Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_CONSUMED attempt=\(launch.request.attemptID.uuidString, privacy: .public) backend=NOT_CONNECTED network_settings=NOT_APPLIED")
                 reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2001,
-                    userInfo: [NSLocalizedDescriptionKey: "Authenticated material passed configuration and policy checks. Native WireGuard runtime is not installed; no VPN was started."]))
-            } catch let error as ManagedWireGuardInputError {
-                Self.log.notice("MANAGED_INPUT_REJECTED attempt=\(launch.request.attemptID.uuidString, privacy: .public) code=\(error.rawValue, privacy: .public) network_settings=NOT_APPLIED")
-                reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2004,
-                    userInfo: [NSLocalizedDescriptionKey: error.message]))
+                    userInfo: [NSLocalizedDescriptionKey: "Credential check completed without starting VPN. Explicit runtime consent and the integrated build are required to connect."]))
             } catch {
                 Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_REJECTED network_settings=NOT_APPLIED")
                 reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2003,
@@ -84,7 +117,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         #else
-        // Existing Linux framework-double harness covers metadata only, NOT native XPC.
         _ = launch
         Self.log.notice("MANAGED_METADATA_VALIDATED backend=NOT_CONNECTED network_settings=NOT_APPLIED")
         completionHandler(NSError(domain: "VPNSplitter.Managed", code: 2001,
@@ -96,6 +128,16 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         let reply = ManagedProviderCompletion { _ in completionHandler() }
         Task { @MainActor in
             ManagedExtensionRuntime.shared?.discard()
+            #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+            if let session = self.flowSession {
+                session.stop { result in
+                    if case .failure = result { Self.log.notice("WG_RUNTIME_STOP cleanup=UNCONFIRMED network_restore=NOT_OBSERVED") }
+                    else if self.flowSession === session { self.flowSession = nil }
+                    reply.finish(nil)
+                }
+                return
+            }
+            #endif
             Self.log.notice("S1_PROVIDER_STOPPED network_restore=NOT_OBSERVED")
             reply.finish(nil)
         }
@@ -104,10 +146,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         completionHandler()
         #endif
     }
+    #if VPNSPLITTER_PACKET_FLOW_RUNTIME
+    override func sleep(completionHandler: @escaping () -> Void) {
+        // No sleep/wake roaming is promised: invalidate and stop; wake never reconnects.
+        let reply = ManagedProviderCompletion { _ in completionHandler() }
+        Task { @MainActor in
+            self.cancelTunnelWithError(NSError(domain: "VPNSplitter.Runtime", code: 2012,
+                userInfo: [NSLocalizedDescriptionKey: "Stopped for sleep; reconnect explicitly after waking."]))
+            if let session = self.flowSession { session.stop { _ in reply.finish(nil) } }
+            else { reply.finish(nil) }
+        }
+    }
+    #endif
 }
 
 #if os(macOS)
-// Framework completion is deliberately transferred to MainActor and invoked once.
 private final class ManagedProviderCompletion: @unchecked Sendable {
     private let callback: (Error?) -> Void
     @MainActor private var finished = false
