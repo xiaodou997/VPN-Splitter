@@ -31,6 +31,18 @@
 			<key>com.apple.networkextension.packet-tunnel</key>
 			<string>$(PRODUCT_MODULE_NAME).PacketTunnelProvider</string>
 		</dict>
+		<key>NEMachServiceName</key>
+		<string>$(VPN_MANAGED_MACH_SERVICE)</string>
 	</dict>
+	<key>VPNManagedAppIdentifier</key>
+	<string>$(VPN_APP_BUNDLE_ID)</string>
+	<key>VPNManagedProviderIdentifier</key>
+	<string>$(VPN_EXTENSION_BUNDLE_ID)</string>
+	<key>VPNManagedTeamIdentifier</key>
+	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>VPNManagedAppGroup</key>
+	<string>$(VPN_MANAGED_APP_GROUP)</string>
+	<key>VPNManagedMachService</key>
+	<string>$(VPN_MANAGED_MACH_SERVICE)</string>
 </dict>
 </plist>

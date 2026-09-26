@@ -7,9 +7,8 @@ import Darwin
 
 extension ManagedCredentialVault {
     /// Does not read or write Keychain until prepare/load/revoke is explicitly called.
-    /// Expected bundle ID is a role check, NOT caller authentication. Data-protection
-    /// Keychain access is enforced by Security using the current process's entitlements.
-    /// No access group or file-based/login/System Keychain fallback is added here.
+    /// The factory pins items to the containing App's OWN signed application identifier,
+    /// never the new Mach-service App Group. No login/System Keychain fallback exists.
     public static func forContainingApp(expectedBundleIdentifier: String) throws -> ManagedCredentialVault {
         guard !expectedBundleIdentifier.isEmpty, expectedBundleIdentifier.utf8.count <= 200,
               Bundle.main.bundleIdentifier == expectedBundleIdentifier,
@@ -17,18 +16,31 @@ extension ManagedCredentialVault {
               getuid() > 0, geteuid() == getuid() else {
             throw ManagedCredentialError(reason: .invalidAppContext)
         }
-        let backend = ManagedAppKeychain(service: expectedBundleIdentifier + ".managed-credentials.v1")
+        var code: SecCode?
+        var staticCode: SecStaticCode?
+        var info: CFDictionary?
+        guard SecCodeCopySelf(SecCSFlags(rawValue: 0), &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, SecCSFlags(rawValue: 0), &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let signing = info as? [String: Any],
+              let entitlements = signing[kSecCodeInfoEntitlementsDict as String] as? [String: Any],
+              let applicationID = entitlements["com.apple.application-identifier"] as? String,
+              applicationID.hasSuffix("." + expectedBundleIdentifier), applicationID.utf8.count <= 240,
+              applicationID != expectedBundleIdentifier else {
+            throw ManagedCredentialError(reason: .invalidAppContext)
+        }
+        let backend = ManagedAppKeychain(service: expectedBundleIdentifier + ".managed-credentials.v1", accessGroup: applicationID)
         return try ManagedCredentialVault(backend: backend, ownerUID: getuid())
     }
 }
 
-/// APP USER CONTEXT ONLY. A root Packet Tunnel system extension is intentionally not
-/// given this factory, a shared Keychain entitlement, or an alternate record reader.
+/// APP USER CONTEXT ONLY. The access group is the signed containing App identifier,
+/// not a group shared with the root system extension. No extension-side reader.
 struct ManagedAppKeychain: ManagedCredentialBackend {
     let service: String
+    let accessGroup: String
 
-    // Keep builders separate so macOS tests can inspect real Security keys without
-    // invoking any Security operation, login prompt, real item, or network API.
+    // Query builders let macOS tests inspect Security keys WITHOUT real item access.
     func query(reference: Data? = nil, account: String? = nil, scoped: Bool = true) -> [String: Any] {
         let context = LAContext()
         context.interactionNotAllowed = true
@@ -39,6 +51,7 @@ struct ManagedAppKeychain: ManagedCredentialBackend {
         if scoped {
             result[kSecClass as String] = kSecClassGenericPassword
             result[kSecAttrService as String] = service
+            result[kSecAttrAccessGroup as String] = accessGroup
             result[kSecAttrSynchronizable as String] = false
         }
         if let reference { result[kSecValuePersistentRef as String] = reference }
@@ -81,6 +94,7 @@ struct ManagedAppKeychain: ManagedCredentialBackend {
         try check(SecItemCopyMatching(readQuery(reference: reference) as CFDictionary, &result))
         guard let fields = result as? [String: Any],
               fields[kSecAttrService as String] as? String == service,
+              fields[kSecAttrAccessGroup as String] as? String == accessGroup,
               fields[kSecAttrAccessible as String] as? String == kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String,
               let account = fields[kSecAttrAccount as String] as? String,
               let value = fields[kSecValueData as String] as? Data,
@@ -99,7 +113,6 @@ struct ManagedAppKeychain: ManagedCredentialBackend {
         let status = SecItemCopyMatching(existsQuery(reference: reference) as CFDictionary, &result)
         if status == errSecItemNotFound { return false }
         try check(status)
-        // A successful but malformed response cannot be treated as confirmed absence.
         guard result != nil else { throw ManagedCredentialBackendError.invalidResult }
         return true
     }

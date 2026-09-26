@@ -25,7 +25,12 @@ class CredentialSourceTests(unittest.TestCase):
         self.assertIn('kSecUseDataProtectionKeychain as String: true', source)
         self.assertIn('context.interactionNotAllowed = true', source)
         self.assertIn('geteuid() == getuid()', source)
-        for forbidden in ['kSecAttrAccessGroup', 'SecAccessCreate(', 'SecKeychainOpen(', 'kSecUseKeychain',
+        # The newly required Mach App Group must not become the Keychain default.
+        self.assertIn('entitlements["com.apple.application-identifier"]', source)
+        self.assertIn('accessGroup: applicationID', source)
+        self.assertIn('result[kSecAttrAccessGroup as String] = accessGroup', source)
+        self.assertNotIn('VPNManagedAppGroup', source)
+        for forbidden in ['SecAccessCreate(', 'SecKeychainOpen(', 'kSecUseKeychain',
                           'kSecMatchSearchList', 'SecItemUpdate(', 'kSecMatchLimitAll', 'LocalDev']:
             self.assertNotIn(forbidden, source)
 

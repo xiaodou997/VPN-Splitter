@@ -30,5 +30,15 @@
 	<string>Activate the VPN-Splitter packet tunnel signing spike. It does not route traffic yet.</string>
 	<key>VPNExtensionBundleIdentifier</key>
 	<string>$(VPN_EXTENSION_BUNDLE_ID)</string>
+	<key>VPNManagedAppIdentifier</key>
+	<string>$(VPN_APP_BUNDLE_ID)</string>
+	<key>VPNManagedProviderIdentifier</key>
+	<string>$(VPN_EXTENSION_BUNDLE_ID)</string>
+	<key>VPNManagedTeamIdentifier</key>
+	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>VPNManagedAppGroup</key>
+	<string>$(VPN_MANAGED_APP_GROUP)</string>
+	<key>VPNManagedMachService</key>
+	<string>$(VPN_MANAGED_MACH_SERVICE)</string>
 </dict>
 </plist>

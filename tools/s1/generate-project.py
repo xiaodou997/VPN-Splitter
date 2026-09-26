@@ -19,7 +19,7 @@ def build_project():
         return key
     def file(name, path, typ, tree='<group>'):
         return add(name, isa='PBXFileReference', lastKnownFileType=typ, path=path, sourceTree=tree)
-    app_files = [file('app.'+n, 'App/'+n, 'sourcecode.swift') for n in ('VPNSplitterApp.swift','SpikeController.swift','ManagedTunnelLaunchClient.swift')]
+    app_files = [file('app.'+n, 'App/'+n, 'sourcecode.swift') for n in ('VPNSplitterApp.swift','SpikeController.swift','ManagedTunnelLaunchClient.swift','ManagedConfigurationView.swift')]
     tunnel_files = [file('tunnel.'+n, 'PacketTunnel/'+n, 'sourcecode.swift') for n in ('main.swift','PacketTunnelProvider.swift')]
     plist_files = [file('plist.'+n,n+'/Info.plist','text.plist.xml') for n in ('App','PacketTunnel')]
     config_files = {n:file('config.'+n,'Config/'+n+'.xcconfig','text.xcconfig') for n in ('Debug','Release','DeveloperID')}

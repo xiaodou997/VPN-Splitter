@@ -4,6 +4,7 @@ objects = {
 "A9F83958E7E9EF104095179C" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/VPNSplitterApp.swift"; "sourceTree" = "<group>"; };
 "41F898C3F2DAD6D4FE068BC2" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/SpikeController.swift"; "sourceTree" = "<group>"; };
 "BBB6461D1923AF7D257515FA" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/ManagedTunnelLaunchClient.swift"; "sourceTree" = "<group>"; };
+"78FB0A510F7512A239D99D4C" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "App/ManagedConfigurationView.swift"; "sourceTree" = "<group>"; };
 "B7280909872BC442D629350C" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "PacketTunnel/main.swift"; "sourceTree" = "<group>"; };
 "BF0BF6A90BAAA91CE693BA33" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "sourcecode.swift"; "path" = "PacketTunnel/PacketTunnelProvider.swift"; "sourceTree" = "<group>"; };
 "67BD4EB2C00CC187D5B6FE0E" = { "isa" = "PBXFileReference"; "lastKnownFileType" = "text.plist.xml"; "path" = "App/Info.plist"; "sourceTree" = "<group>"; };
@@ -19,13 +20,14 @@ objects = {
 "C64ABEFD0E7C8B84C99AAF75" = { "isa" = "PBXFileReference"; "explicitFileType" = "wrapper.application"; "includeInIndex" = "0"; "path" = "VPN-Splitter.app"; "sourceTree" = "BUILT_PRODUCTS_DIR"; };
 "C7789DFDFA42540BA30BEC20" = { "isa" = "PBXFileReference"; "explicitFileType" = "wrapper.system-extension"; "includeInIndex" = "0"; "path" = "$(VPN_EXTENSION_BUNDLE_ID).systemextension"; "sourceTree" = "BUILT_PRODUCTS_DIR"; };
 "0A3E27B8CA818264D75C8D81" = { "isa" = "PBXGroup"; "children" = ( "C64ABEFD0E7C8B84C99AAF75", "C7789DFDFA42540BA30BEC20", ); "name" = "Products"; "sourceTree" = "<group>"; };
-"4813494D137E1631BBA301D5" = { "isa" = "PBXGroup"; "children" = ( "A9F83958E7E9EF104095179C", "41F898C3F2DAD6D4FE068BC2", "BBB6461D1923AF7D257515FA", "B7280909872BC442D629350C", "BF0BF6A90BAAA91CE693BA33", "67BD4EB2C00CC187D5B6FE0E", "ED67426A5FCDD773166ADF7E", "5512F42DED1A1525A270ACA4", "D53BE72F459F42878E777F81", "AB4CF9F91B6EE1C9B0D3AB2B", "97D28FE17C9B863C907A0FF4", "EB3B81E2584C40C1A9CB3927", "15C19CAC40E80350BB501C9C", "2EAD56388DCB64A0D8249346", "87D5481B1C33A834E5ABAA7E", "0A3E27B8CA818264D75C8D81", ); "sourceTree" = "<group>"; };
+"4813494D137E1631BBA301D5" = { "isa" = "PBXGroup"; "children" = ( "A9F83958E7E9EF104095179C", "41F898C3F2DAD6D4FE068BC2", "BBB6461D1923AF7D257515FA", "78FB0A510F7512A239D99D4C", "B7280909872BC442D629350C", "BF0BF6A90BAAA91CE693BA33", "67BD4EB2C00CC187D5B6FE0E", "ED67426A5FCDD773166ADF7E", "5512F42DED1A1525A270ACA4", "D53BE72F459F42878E777F81", "AB4CF9F91B6EE1C9B0D3AB2B", "97D28FE17C9B863C907A0FF4", "EB3B81E2584C40C1A9CB3927", "15C19CAC40E80350BB501C9C", "2EAD56388DCB64A0D8249346", "87D5481B1C33A834E5ABAA7E", "0A3E27B8CA818264D75C8D81", ); "sourceTree" = "<group>"; };
 "BC4A71180870F7945155FBB0" = { "isa" = "XCLocalSwiftPackageReference"; "relativePath" = "../../Packages/PolicyCore"; };
 "025783B85E23F7B4B1F4D107" = { "isa" = "XCLocalSwiftPackageReference"; "relativePath" = "../../Packages/ProviderConfiguration"; };
 "5D88E9B620A8D407DB53F0BE" = { "isa" = "PBXBuildFile"; "fileRef" = "A9F83958E7E9EF104095179C"; };
 "860BDDB28AB747B87F6E3D37" = { "isa" = "PBXBuildFile"; "fileRef" = "41F898C3F2DAD6D4FE068BC2"; };
 "85FBE898BB920C29E0405FEC" = { "isa" = "PBXBuildFile"; "fileRef" = "BBB6461D1923AF7D257515FA"; };
-"76E512711C5F577B8E6FBFD0" = { "isa" = "PBXSourcesBuildPhase"; "buildActionMask" = "2147483647"; "files" = ( "5D88E9B620A8D407DB53F0BE", "860BDDB28AB747B87F6E3D37", "85FBE898BB920C29E0405FEC", ); "runOnlyForDeploymentPostprocessing" = "0"; };
+"F54DE2D3C11EA8E3B6DADE39" = { "isa" = "PBXBuildFile"; "fileRef" = "78FB0A510F7512A239D99D4C"; };
+"76E512711C5F577B8E6FBFD0" = { "isa" = "PBXSourcesBuildPhase"; "buildActionMask" = "2147483647"; "files" = ( "5D88E9B620A8D407DB53F0BE", "860BDDB28AB747B87F6E3D37", "85FBE898BB920C29E0405FEC", "F54DE2D3C11EA8E3B6DADE39", ); "runOnlyForDeploymentPostprocessing" = "0"; };
 "6FF22BB8E0B4ABD6BB0936F3" = { "isa" = "XCSwiftPackageProductDependency"; "package" = "BC4A71180870F7945155FBB0"; "productName" = "PolicyCore"; };
 "F4D25C43DAC699168DE88A86" = { "isa" = "PBXBuildFile"; "productRef" = "6FF22BB8E0B4ABD6BB0936F3"; };
 "4668F5DCD16703E2E01E3C1E" = { "isa" = "XCSwiftPackageProductDependency"; "package" = "025783B85E23F7B4B1F4D107"; "productName" = "ProviderConfiguration"; };

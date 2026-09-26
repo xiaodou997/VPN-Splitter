@@ -98,6 +98,10 @@ class LaunchIntegrationTests(unittest.TestCase):
             # It is NOT evidence of Bundle.main or real signed extension identity validation.
             source = (ROOT / "apps/macos/PacketTunnel/PacketTunnelProvider.swift").read_text()
             self.assertEqual(source.count("Bundle.main.bundleIdentifier"), 1)
+            # Force this legacy metadata-only harness to stay metadata-only on Mac too.
+            # This is a test COPY; production macOS branches are never removed.
+            self.assertEqual(source.count("#if os(macOS)"), 5)
+            source = source.replace("#if os(macOS)", "#if VPNSPLITTER_DISABLED_NATIVE_IN_METADATA_TEST")
             (build / "PacketTunnelProvider.swift").write_text(source.replace(
                 "Bundle.main.bundleIdentifier", 'Optional("test.vpnsplitter.provider")'))
             executable = build / "launch-harness"
@@ -110,7 +114,7 @@ class LaunchIntegrationTests(unittest.TestCase):
             env["DYLD_LIBRARY_PATH" if sys.platform == "darwin" else "LD_LIBRARY_PATH"] = str(build)
             result = run([str(executable)], env=env)
             self.assertIn("launch-harness=PASS scenarios=11 framework=TEST_DOUBLES bundle=INJECTED", result.stdout)
-            print(result.stdout.strip())
+            print(result.stdout.strip() + " native_xpc=NOT_TESTED")
 
 
 if __name__ == "__main__":

@@ -64,7 +64,8 @@ class ProjectTests(unittest.TestCase):
                 p=plist(f'apps/macos/Config/{target}.{n}.entitlements')
                 self.assertEqual(p['com.apple.developer.networking.networkextension'],[ne])
                 self.assertNotIn('com.apple.security.get-task-allow',p)
-                self.assertNotIn('com.apple.security.application-groups',p)
+                self.assertEqual(p['com.apple.security.application-groups'], ['$(VPN_MANAGED_APP_GROUP)'])
+                self.assertNotIn('keychain-access-groups',p)
     def test_least_privilege_entitlements(self):
         for n in ('Development','DeveloperID'):
             a=plist(f'apps/macos/Config/App.{n}.entitlements');t=plist(f'apps/macos/Config/PacketTunnel.{n}.entitlements')

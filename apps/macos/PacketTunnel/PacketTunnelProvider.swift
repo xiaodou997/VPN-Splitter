@@ -30,32 +30,83 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             userInfo: [NSLocalizedDescriptionKey: "S1 provider reached; protocol backend intentionally not implemented."]))
     }
     private func startManaged(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        let launch: CheckedManagedLaunch
+        #if os(macOS)
+        var ownerUID: UInt32?
+        #endif
         do {
             guard let configuration = protocolConfiguration as? NETunnelProviderProtocol,
                   let providerID = Bundle.main.bundleIdentifier else {
                 throw ManagedLaunchError.invalidContainer
             }
-            _ = try ManagedLaunchContract.check(
+            launch = try ManagedLaunchContract.check(
                 providerBundleIdentifier: configuration.providerBundleIdentifier,
                 expectedProviderBundleIdentifier: providerID,
                 providerConfiguration: configuration.providerConfiguration,
                 passwordReference: configuration.passwordReference, options: options)
+            #if os(macOS)
+            if let text = configuration.username, text.utf8.count <= 10,
+               let uid = UInt32(text), uid > 0, String(uid) == text { ownerUID = uid }
+            #endif
         } catch {
             Self.log.notice("MANAGED_START_REJECTED network_settings=NOT_APPLIED")
             completionHandler(NSError(domain: "VPNSplitter.Managed", code: 2002,
                 userInfo: [NSLocalizedDescriptionKey: "Managed launch metadata is invalid or does not match the saved profile."]))
             return
         }
-        // Metadata equality is NOT credential authorization. Do not install a fake
-        // credential loader, guess a utun, or report connected to remove this gate.
-        // Still required: authorized record resolution, runtime network identity,
-        // owned packet channel, and ManagedWireGuardSession + teardown integration.
+        #if os(macOS)
+        let reply = ManagedProviderCompletion(completionHandler)
+        let requestedUID = ownerUID
+        Task { @MainActor in
+            do {
+                guard let ownerUID = requestedUID, let runtime = ManagedExtensionRuntime.shared else {
+                    throw ManagedTransferError.deliveryMissing
+                }
+                let received = try runtime.consume(launch, ownerUID: ownerUID)
+                // Consume at the REAL entry; never start with only a matching reference.
+                // Material is intentionally discarded while engine/channel wiring is absent.
+                _ = received
+                Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_CONSUMED attempt=\(launch.request.attemptID.uuidString, privacy: .public) backend=NOT_CONNECTED network_settings=NOT_APPLIED")
+                reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2001,
+                    userInfo: [NSLocalizedDescriptionKey: "Authenticated credential delivery consumed. WireGuard runtime is not yet installed; no VPN was started."]))
+            } catch {
+                Self.log.notice("MANAGED_CREDENTIAL_DELIVERY_REJECTED network_settings=NOT_APPLIED")
+                reply.finish(NSError(domain: "VPNSplitter.Managed", code: 2003,
+                    userInfo: [NSLocalizedDescriptionKey: "A matching, live authenticated credential delivery is required. No VPN was started."]))
+            }
+        }
+        #else
+        // Existing Linux framework-double harness covers metadata only, NOT native XPC.
+        _ = launch
         Self.log.notice("MANAGED_METADATA_VALIDATED backend=NOT_CONNECTED network_settings=NOT_APPLIED")
         completionHandler(NSError(domain: "VPNSplitter.Managed", code: 2001,
-            userInfo: [NSLocalizedDescriptionKey: "Managed launch metadata validated; credential and tunnel runtime integration are not yet available. No VPN was started."]))
+            userInfo: [NSLocalizedDescriptionKey: "Native credential delivery is unavailable on this platform."]))
+        #endif
     }
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        #if os(macOS)
+        let reply = ManagedProviderCompletion { _ in completionHandler() }
+        Task { @MainActor in
+            ManagedExtensionRuntime.shared?.discard()
+            Self.log.notice("S1_PROVIDER_STOPPED network_restore=NOT_OBSERVED")
+            reply.finish(nil)
+        }
+        #else
         Self.log.notice("S1_PROVIDER_STOPPED")
         completionHandler()
+        #endif
     }
 }
+
+#if os(macOS)
+// Framework completion is deliberately transferred to MainActor and invoked once.
+private final class ManagedProviderCompletion: @unchecked Sendable {
+    private let callback: (Error?) -> Void
+    @MainActor private var finished = false
+    init(_ callback: @escaping (Error?) -> Void) { self.callback = callback }
+    @MainActor func finish(_ error: Error?) {
+        guard !finished else { return }
+        finished = true; callback(error)
+    }
+}
+#endif

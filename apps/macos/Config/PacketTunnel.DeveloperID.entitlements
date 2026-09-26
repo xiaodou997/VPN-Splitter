@@ -10,5 +10,9 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(VPN_MANAGED_APP_GROUP)</string>
+	</array>
 </dict>
 </plist>

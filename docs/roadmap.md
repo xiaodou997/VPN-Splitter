@@ -1,35 +1,35 @@
 # v0.1 开发路线图与任务拆分
 
-版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-26。  
-**当前仍处于 S1，未形成可用 VPN。** LocalDev 已到 LD-03B；WG-INT-01～07 为构建、规划和进程内接入。WG-INT-08A 将启动元数据校验加入正式 App/PacketTunnel target，但正式 Provider 尚未安装 WireGuard 运行会话，合法请求仍明确拒绝执行。OpenVPN 和应用内 External 未接通。
+版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-26 / WG-INT-08C。
+**当前仍处于 S1，未形成可用 VPN。** LocalDev 为 LD-03B。08A/08B 的启动元数据和 App Keychain 已由本批正式页面、真实 NE 保存/重载、双向签名要求 XPC、正式 Provider 消费接线串起；原生 Apple SDK/签名/Keychain/XPC/GUI 验收仍 NOT RUN。WireGuard 正式引擎、自有数据通道、系统撤销未接通。OpenVPN 与应用内 External 未接通。
 
-总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。实际能力/需求状态见 [验收状态](acceptance-status.md)；本批代码与测试边界见 [WG-INT-08A 证据](evidence/wg-int-08a-managed-launch-boundary.md)。代码、编译、系统实测分别报告。
+总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。当前事实见 [验收状态](acceptance-status.md)、[08C 证据](evidence/wg-int-08c-authenticated-configuration-delivery.md)、[08C ADR](adr/ADR-WG-INT-08C-authenticated-configuration-delivery.md)。代码接线、离线回归、原生构建、真实功能分别报告。
 
 ## 当前执行队列：先打通一条真实连接
 
-依据用户 2026-09-26 的现状核对，开发焦点由提前开发 LocalDev 转回正式执行链；见 [WG-INT-08A ADR](adr/ADR-WG-INT-08A-managed-launch-contract.md)。这不扩大首发范围，也不关闭 [ADR-007](adr/ADR-007-localdev-before-signing.md) 保留的技术门槛。不再以完善 UI 或增加模拟数量作为本阶段主要交付。
-
 | 已有工作 | 当前事实与边界 |
 | --- | --- |
-| LocalDev LD-01～03B | 配置、规则、导入、参数和模拟生命周期已有代码；开窗和遮挡修正为 USER_REPORTED 成功。真实 Keychain 的完整操作链未逐项验收；模拟不连接 VPN |
-| PolicyCore / ManagedSettings | IPv4 first-match、约束与路由/设置构造已实现；计算结果不证明系统应用或真实出口 |
-| WG-INT-01～07 | 原生构建基础、设置门控、资源生命周期、组装与进程内会话接线；不是七项已可用 VPN 功能 |
-| 原生构建 48eee07 | 用户报告编译、链接、桥接符号检查通过，证据保留；不自动覆盖 WG-INT-06/07 或本批代码 |
-| WG-INT-08A | 正式 target 引用启动协议包，App 提交辅助代码和 Provider 元数据校验有离线回归；没有真实连接 UI 接入或跨进程凭据授权。合法请求返回 Managed 2001，不能报告连接成功 |
+| LocalDev LD-01～03B | 配置、规则、导入、参数和模拟已有实现；开窗/遮挡修正 USER_REPORTED 成功。完整真实 Keychain 操作链未验收；本批不改权限或迁移其数据 |
+| PolicyCore / ManagedSettings | 能计算协议约束内的 IPv4 路由/设置；不是已应用系统或实际出口证据 |
+| WG-INT-01～07 | 引擎构建、设置门控、资源生命周期、组装与进程内会话接线；尚未安装到正式 Provider |
+| 原生构建 48eee07 | 用户报告编译、链接和桥接符号通过；保留且仅覆盖该基线，不自动覆盖新增代码 |
+| WG-INT-08A/B | 统一启动元数据和 App 专用 Keychain 记录已实现；历史证据独立保留 |
+| WG-INT-08C | 正式页面 → 选择/保存事务 → 认证 XPC → 正式 Provider 消费已有实际 API 代码接线；没有真机通过证据。收到材料后仍返回 2001；无交付 2003；元数据错误 2002；旧 smoke 1001 |
 
-**首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 Include，指定网段走 VPN，其他目标直连；可连接、取消、断开，并有系统停止/恢复证据。** 请求中的 scope 标记不是实际配置、Peer 数、路由或权限已验证的证明。
+**首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 Include，指定网段走 VPN，其他目标直连；可连接、取消、断开，并有系统停止/恢复证据。** 08C 页面保存的是交付草稿，scope 标签和传输成功不代替 WireGuard/脚本/Peer/DNS/AllowedIPs 的完整运行校验。
 
 | 下一优先任务 | 必须交付的实际结果 |
 | --- | --- |
-| 正式配置与凭据交付 | 实现 App 保存/选择事务与扩展侧授权读取，验证实际调用方、记录所有者、完整配置/规则版本和撤销；普通配置仅存引用，不放宽 LocalDev 权限 |
-| 扩展自有数据通道 | 从真实 Provider 取得确属本扩展的数据资源；不能扫描 utun 猜测，不把相同 UUID/接口名作为所有权证明 |
-| 正式运行会话接线 | 将实际配置、PolicyCore、ManagedSettings、WG-INT-07 会话装到正式 Provider；App 重新载入偏好后显式提交，状态来自真实 NE 观察 |
-| 实际网络失效与停止 | 接物理网络/epoch、取消/超时/切网失效；区分 backend 停止和路由/DNS 撤销，无法确认显示恢复需处理 |
-| 构建与首轮联调 | 对新增正式代码执行 Mac 构建；首次真实运行前再恢复开发签名和现场授权；收集握手、目标访问、双路径与断开后系统证据 |
+| 原生保存/交付验收 | 新增代码的 Mac 构建；正确 App Group/profile；真实 Keychain、偏好保存/取消/重载；双向错签名/错用户/重放/过期拒绝；正确材料被正式 Provider 消费 |
+| 材料转换与自有数据通道 | 将实际交付的配置/规则经过现有完整解析/编译；从本扩展取得可信数据资源，不扫描 utun 或只核对 UUID |
+| 正式运行会话 | 安装 WG-INT-07 实际引擎会话；连接状态来自系统/后端观察，不把暂存 ACK 或 startTunnel 返回值当连接成功 |
+| 网络失效与停止 | 实际物理网络/epoch、取消/超时/切网失效和消费后授权生命周期；区分 backend 停止与路由/DNS 撤销，无法确认显示恢复需处理 |
+| 持久化维护 | 旧凭据/孤儿记录与清理失败的持久化恢复，不能通过扫库删除或移除锁解决；当前保存未知时保留候选，不宣称原子 OS CAS |
+| 首轮真实联调 | 首次真实 VPN 前现场授权和恢复方案；握手、目标访问、双路径与断开系统证据。签名不是唯一剩余工作 |
 
-以上闭环通过后才扩展 WireGuard 运行质量和 S2 DNS，再进入 OpenVPN / External。已有 S1 preflight / unsigned 和 S0 单目标证据不要求无理由重做，S0 收尾独立保留。
+以上闭环通过后扩大 WireGuard 运行质量和 S2 DNS，再进入 OpenVPN / External。S0 未完成收尾独立保留；已完成的 S0 单目标与旧构建不无理由重做。
 
-用户已授权直接非强制推送 main；main 是唯一日常更新入口，不需要历史补丁或 ZIP。本地使用 `git pull --ff-only` 和 `dev.sh`。`run` / `test` 保持 LocalDev，`engine` / `engine-test` 保持已有 WG 候选流程，新增 `provider-test` 只做启动边界离线回归，不保存 VPN 偏好、不读取真实 Keychain、不激活扩展、不修改网络。
+main 仍是唯一更新入口，非强制推送，不发补丁/ZIP。`dev.sh run` / `test` 仍为 LocalDev；正式新页面属于原 S1 Xcode 工程，不会出现在 LocalDev。`engine` / `engine-test` 不变；`provider-test` 在完整仓库运行旧/新增离线测试，不读写真实 Keychain、不保存 VPN 偏好、不激活扩展或修改网络。本批实际执行的子集以证据页为准。
 
 ## 1. 执行规则
 

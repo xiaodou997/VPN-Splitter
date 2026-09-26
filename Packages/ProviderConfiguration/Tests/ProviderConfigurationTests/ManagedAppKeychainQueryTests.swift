@@ -8,7 +8,7 @@ import XCTest
 
 /// Native API-key/query checks only. Never call SecItem* or create a real credential.
 final class ManagedAppKeychainQueryTests: XCTestCase {
-    private let backend = ManagedAppKeychain(service: "test.synthetic.managed-credentials.v1")
+    private let backend = ManagedAppKeychain(service: "test.synthetic.managed-credentials.v1", accessGroup: "ABCDEFGHIJ.test.synthetic")
     private let reference = Data([7, 11, 13])
     func testAddIsDeviceLocalUnlockedAndNonInteractive() throws {
         let query = backend.addQuery(account: "SYNTHETIC", value: Data([1]))
@@ -17,6 +17,7 @@ final class ManagedAppKeychainQueryTests: XCTestCase {
         XCTAssertEqual(query[kSecAttrAccessible as String] as? String, kSecAttrAccessibleWhenUnlockedThisDeviceOnly as String)
         XCTAssertEqual(query[kSecReturnPersistentRef as String] as? Bool, true)
         XCTAssertEqual(query[kSecAttrService as String] as? String, backend.service)
+        XCTAssertEqual(query[kSecAttrAccessGroup as String] as? String, backend.accessGroup)
         XCTAssertTrue(try XCTUnwrap(query[kSecUseAuthenticationContext as String] as? LAContext).interactionNotAllowed)
     }
     func testReadUsesExactReferenceAndDedicatedService() {
@@ -24,6 +25,7 @@ final class ManagedAppKeychainQueryTests: XCTestCase {
         XCTAssertEqual(query[kSecValuePersistentRef as String] as? Data, reference)
         XCTAssertEqual(query[kSecClass as String] as? String, kSecClassGenericPassword as String)
         XCTAssertEqual(query[kSecAttrService as String] as? String, backend.service)
+        XCTAssertEqual(query[kSecAttrAccessGroup as String] as? String, backend.accessGroup)
         XCTAssertEqual(query[kSecReturnData as String] as? Bool, true)
         XCTAssertEqual(query[kSecReturnAttributes as String] as? Bool, true)
         XCTAssertEqual(query[kSecMatchLimit as String] as? String, kSecMatchLimitOne as String)
@@ -32,7 +34,7 @@ final class ManagedAppKeychainQueryTests: XCTestCase {
         let query = backend.query(reference: reference, account: "SYNTHETIC")
         XCTAssertEqual(Set(query.keys), Set([kSecUseDataProtectionKeychain as String, kSecUseAuthenticationContext as String,
             kSecClass as String, kSecAttrService as String, kSecAttrSynchronizable as String,
-            kSecValuePersistentRef as String, kSecAttrAccount as String]))
+            kSecAttrAccessGroup as String, kSecValuePersistentRef as String, kSecAttrAccount as String]))
         XCTAssertEqual(query[kSecAttrAccount as String] as? String, "SYNTHETIC")
         XCTAssertEqual(query[kSecValuePersistentRef as String] as? Data, reference)
     }
