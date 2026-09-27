@@ -1,9 +1,9 @@
 # v0.1 开发路线图与任务拆分
 
-版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-27 / WG-INT-10。
-**仍处于 S1，未取得可用 VPN 的真实验收证据。** WG-INT-10 已把显式 run 授权、正式 Provider、真实网络观察 API、PolicyCore/ManagedSettings、设置成功门控和 09 packetFlow 后端接成运行代码，并提供独立正式工程构建入口。新增源码没有本轮 Mac 原生编译、握手、双出口或系统恢复证据，不能把代码接线写成 WG 全部完成。OpenVPN 和应用内 External 未接通。
+版本：Design Draft 1.0；阶段目标保留，执行状态更新于 2026-09-27 / WG-INT-10 用户原生构建反馈。
+**仍处于 S1，正式集成原生编译/链接已有 USER_REPORTED PASS，尚未取得可用 VPN 的真实验收证据。** WG-INT-10 已把显式 run 授权、正式 Provider、真实网络观察 API、PolicyCore/ManagedSettings、设置成功门控和 09 packetFlow 后端接成运行代码，并提供独立正式工程构建入口。本次用户报告 provider-build unsigned 成功；产物未执行、设置未应用、扩展未请求激活，不能把编译成功写成 WG 全部完成。OpenVPN 和应用内 External 未接通。
 
-总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。当前事实见 [验收状态](acceptance-status.md)、[10 证据](evidence/wg-int-10-provider-runtime.md)与 [10 ADR](adr/ADR-WG-INT-10-provider-runtime.md)。历史 [09](evidence/wg-int-09-native-packet-flow.md)、[08D](evidence/wg-int-08d-material-admission.md)、[08C](evidence/wg-int-08c-authenticated-configuration-delivery.md) 保留。
+总跟踪：[Issue #1](https://github.com/xiaodou997/VPN-Splitter/issues/1)。当前事实见 [验收状态](acceptance-status.md)、[用户原生集成构建证据](evidence/wg-int-10-user-native-build.md)、[FIX-01](evidence/wg-int-10-fix-01-build-blockers.md)、[10 证据](evidence/wg-int-10-provider-runtime.md)与 [10 ADR](adr/ADR-WG-INT-10-provider-runtime.md)。历史 [09](evidence/wg-int-09-native-packet-flow.md)、[08D](evidence/wg-int-08d-material-admission.md)、[08C](evidence/wg-int-08c-authenticated-configuration-delivery.md) 保留。
 
 ## 当前执行队列：先验收一条真实连接
 
@@ -14,20 +14,21 @@
 | WG-INT-08A～D | 正式选择/保存/App Keychain/认证 XPC/材料完整语义校验已有代码；真实身份和系统偏好行为未验收 |
 | WG-INT-09 | 原生对象转换与公共 packetFlow/C/Go 候选；10 将其接入真实 Provider 的独立集成构建 |
 | WG-INT-10 | 显式运行授权、主物理网络快照/MTU/epoch、settings→engine→stop→clear 已有实现和有限离线回归；不是原生功能验收 |
+| 正式集成原生构建 | FIX-01 后用户报告 provider-build PASS；unsigned、未执行。记录时 main 为 a4dfc32，本机精确 commit/工作区/源码指纹未提供，不声称快照逐字核验或全量测试通过 |
 | 原生构建 48eee07 | 用户报告编译/链接/桥接符号通过，保留且只覆盖该旧基线 |
 
 **首个可用目标：单份 WireGuard 配置、首轮单 Peer、IPv4 数字端点、Include、无 DNS 字段；指定网段走 VPN，其余直连，可以取消/断开，并有独立系统恢复证据。** 不自动删除 DNS/IPv6/额外 Peer，不扩大 AllowedIPs；首轮限制不取消 S2/v0.1 DNS 目标。
 
 | 当前优先任务 | 必须交付的实际结果 |
 | --- | --- |
-| 正式集成原生构建 | provider-build 编译真实 App/System Extension 与固定 Go archive；修正 Apple SDK/链接实际错误，不拿旧 unsigned 或探针结果替代 |
+| 开发签名与权限检查 | unsigned 正式集成构建已有用户成功反馈；下一步本机签名和身份/能力/App Group/profile 核对，provider-build --sign 不自动安装或激活 |
 | 身份/保存/授权验收 | 正确 App Group/profile，Keychain/偏好读写、错签名/错用户/过期/重放拒绝；旧 check 始终不联网，新 run 经独立确认 |
 | 首轮流量验收 | 设置及时成功后引擎运行、真实握手、指定 VPN 与直连双路径；connected 或 engine ready 不等于目标可达 |
 | 系统撤销观察 | 实现独立路由/DNS 前后观察并覆盖失败、取消、超时、崩溃。已有 nil-settings ACK 不升级为系统已恢复 |
 | 运行质量 | 扩大网络争用与多接口观察；睡醒/切网重连、真实统计、诊断、性能和长期运行。当前切网/睡眠停止，不自动重连 |
 | 持久化维护 | 旧凭据/孤儿记录/失败清理持久化恢复；不扫库盲删、不移除锁，不宣称系统偏好原子 CAS |
 
-main 非强制统一交付，无补丁包。`dev.sh provider-runtime-test` 是本批离线入口；`provider-build [--fetch] [--sign]` 生成并编译独立正式工程，默认 unsigned 且不安装/激活。只有显式 --fetch 下载固定公开依赖，--sign 也不授权真实网络测试。`run`/`test` 仍 LocalDev，原 `engine`/`engine-flow`/旧 S1 保留。
+main 非强制统一交付，无补丁包。`dev.sh provider-runtime-test` 是本批离线入口；`provider-build [--fetch] [--sign]` 生成并编译独立正式工程，默认 unsigned 且不安装/激活。只有显式 --fetch 下载固定公开依赖，--sign 也不授权真实网络测试。`run`/`test` 仍 LocalDev，原 `engine`/`engine-flow`/旧 S1 保留。本次仅同步文档，不要求为此重跑已成功的 unsigned 构建；保留本机结果目录，不清空缓存或锁。
 
 通过闭环后补齐 WireGuard 运行质量和 S2 DNS，再进入 OpenVPN/External。S0 未完成收尾独立保留，已完成单目标实验和旧构建不无理由重做。
 
@@ -129,7 +130,7 @@ main 非强制统一交付，无补丁包。`dev.sh provider-runtime-test` 是�
 
 一个任务完成需代码/文档一致、测试可重复、错误/权限/恢复路径覆盖、无秘密、依赖许可记录齐全、诊断可解释、未测项明确。影响系统网络的变更额外提供前后状态及撤销证据。
 
-新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：按上方队列进行正式集成原生构建、真实运行验收及独立系统撤销观察；不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批代码集成宣告 S1–S5 通过。
+新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：按上方队列进行开发签名/权限检查、真实运行验收及独立系统撤销观察；已有正式集成原生构建用户成功证据，不要求为文档同步重跑。不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批构建通过宣告 S1–S5 通过。
 
 ## main 工作流与 S1-01 交付
 
