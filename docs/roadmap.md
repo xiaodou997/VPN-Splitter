@@ -1,13 +1,14 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-27 / EX-INT-01。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-27 / EX-INT-02 前台执行候选。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
 | 项目 | 当前能力与边界 |
 | --- | --- |
 | EX-INT-01 | 新增 External 开发预览：真实 macOS 只读采集 API、IPv4 路由形态识别、DIRECT 规则与冲突预览；已有离线回归，Mac 原生构建/观察未验收；不能应用路由 |
-| EX-INT-02，下一主线 | 受限权限执行、身份/显式授权、准确操作回执与读回、只撤销自有修改、失效/失败清理；不把预览当作权限 |
+| EX-INT-02 前台候选 | 新增真实 PF_ROUTE ADD/GET/DELETE 适配、有限事务、读回/回滚和 root 私有意图标记；手动管理员前台 + TTY/APPLY，非 GUI Helper；离线回归通过，原生构建/路由实测未验收 |
+| External 下一主线 | 原生构建和受控双路径/撤销联调；完善执行诊断，再实现签名认证 Helper 与 GUI 接入。不得将前台管理员工具包装成已经完成的最小权限 IPC |
 | OpenVPN 提前项 | .ovpn 导入、材料引用、脚本/插件拒绝与兼容性报告；本批尚未实现，不冒充可连接 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
@@ -16,6 +17,8 @@
 EX-INT-01 使用 `/bin/bash dev.sh external-run` 打开独立、仅本机 ad-hoc 的只读应用；不是原 `run` 的 LocalDev，也不包含 Network Extension/Helper。`external-build` 只编译，`external-test` 运行离线回归；不需要 Go、开发证书、VPN 配置密钥或管理员权限。不自动采集，用户按检测按钮后才读系统状态。
 
 本批的实际实现和测试边界见 [External 开发入口](external-development.md)与 [EX-INT-01 证据](evidence/ex-int-01-discovery-preview.md)。**显示“拟增加”仍为 NOT_APPLIED，尚未形成应用内可用的第三方 VPN 分流。** 不把路由模式、接口名或 PolicyCore 计算通过当作实际出口、加密或厂商兼容证明。
+
+**02 新增的是前台工程执行器，不是预览按钮解锁。** `external-executor-build` 只编译，`external-execution-test` 只做离线测试。真正 apply 需要另行现场授权、管理员前台及 APPLY 确认；最多 8 个 /24–/32 结果、60 秒不续租。异常/不确定时保留恢复标记，不从旧标记重建删除权；BSD compare/delete 竞争与崩溃恢复仍有边界。见 [运行说明](external-execution.md)、[02 ADR](adr/ADR-EX-INT-02-foreground-route-lease.md)及 [02 证据](evidence/ex-int-02-foreground-route-lease.md)。
 
 External 首轮保持原规范：兼容的路由型全局 VPN + 指定 IPv4 DIRECT 例外；不是默认直连 Include，不是按应用/进程，不改原客户端认证/配置/进程/默认路由/DNS。当前预览拒绝多物理路径、多隧道、格式未知、同级或更具体路由冲突及保护范围重叠；已有直连条目也不认领、不删除。后续必须验证原 VPN 保持、指定目标直连及停止后无无法解释的残留。
 

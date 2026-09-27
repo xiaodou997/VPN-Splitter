@@ -8,7 +8,8 @@ let package = Package(
                .executable(name: "VPNExternalPreview", targets: ["ExternalPreview"])],
     dependencies: [.package(path: "../PolicyCore")],
     targets: [
-        .target(name: "ExternalCore", dependencies: ["PolicyCore"]),
+        .target(name: "ExternalCore", dependencies: ["PolicyCore"],
+            linkerSettings: [.linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))]),
         .executableTarget(name: "ExternalPreview", dependencies: ["ExternalCore", "PolicyCore"],
             linkerSettings: [.linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))]),
         .testTarget(name: "ExternalCoreTests", dependencies: ["ExternalCore", "PolicyCore"])

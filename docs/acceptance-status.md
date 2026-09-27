@@ -1,8 +1,8 @@
 # 当前能力与需求验收状态
 
-更新：2026-09-27，EX-INT-01。起点 11f6b8a；[需求规范](requirements-v0.1.md)及 S0–S5 退出条件不变。代码、离线回归、原生构建与真实功能分开记录。
+更新：2026-09-27，EX-INT-02 前台执行候选。起点 1776b4c；[需求规范](requirements-v0.1.md)及 S0–S5 退出条件不变。代码、离线回归、原生构建与真实功能分开记录。
 
-**当前主线改为 External，WG 签名暂缓，OpenVPN 导入/兼容性检查提前。** [EX-INT-01](evidence/ex-int-01-discovery-preview.md) 已有独立只读应用、真实系统采集调用、路由模式识别和 DIRECT 预览；29 项核心测试 Debug/Release、6 项 Python 检查通过。Mac 原生 UI/采集未验收，无路由执行/Helper，不能称第三方 VPN 分流已可用。排队变更见 [ADR](adr/ADR-EX-INT-01-external-first.md)。
+**当前主线改为 External，WG 签名暂缓，OpenVPN 导入/兼容性检查提前。** [EX-INT-01](evidence/ex-int-01-discovery-preview.md) 已有独立只读应用、真实系统采集调用、路由模式识别和 DIRECT 预览；29 项核心测试 Debug/Release、6 项 Python 检查通过。Mac 原生 UI/采集仍未验收；02 新增前台受限执行代码，但不是 GUI Helper 或真实分流通过。排队变更见 [ADR](adr/ADR-EX-INT-01-external-first.md)。
 
 **WG-INT-10 的正式运行代码已接线，正式集成原生编译/链接已有 USER_REPORTED PASS；WG/S1 真实验收尚未完成。** 独立 provider-build 将 App → 认证 run 交付 → 正式 Provider → 网络观察/策略设置 → packetFlow/Go 引擎 → stop/clear 编入同一正式工程。用户本次报告 unsigned 构建成功，产物未执行、网络设置未应用、扩展未请求激活；签名、真实握手、双出口和系统恢复仍未验收，不是已可交付的稳定 VPN。
 
@@ -18,7 +18,7 @@
 | WG-05 运行质量 | 切网或睡眠主动停止，授权断开空闲会话也撤销 | 睡醒/切网自动重连、长时稳定性、性能和异常退出恢复后续实现与验收 |
 | DNS-01～05、S2 | 保留原 DNS/域名目标；首轮含 DNS 字段明确拒绝 | Split DNS、来源/TTL/更新/共享 IP 冲突等未接通 |
 | OV-01～08、S3 | 原范围与选型约束保留；导入/兼容性检查提前排队，本批未实现 | .ovpn 导入/认证/push/运行/分流未接通 |
-| EX-01～08、S4 | S0 样本保留；EX-INT-01 当前服务/接口/数字路由只读采集、单一全局隧道形态和规则预览代码；未知/多路径/保护范围/路由冲突拒绝 | Native 采集/GUI 待验，Helper 与路由执行/所有权/撤销未实现；预览恒为 NOT_APPLIED，不验证完整 DNS/强制策略/厂商兼容 |
+| EX-01～08、S4 | S0 样本保留；EX-INT-01 当前服务/接口/数字路由只读采集、单一全局隧道形态和规则预览代码；未知/多路径/保护范围/路由冲突拒绝 | 02 新增真实 PF_ROUTE 与有限事务/回滚/root 意图日志；原生构建、路由行为/双路径仍未验，签名认证 Helper 与 GUI 写入仍未实现；预览仍只读，不能声称原子删除权或完整恢复 |
 | DIST-01/02、S5 | 正式可重复集成构建入口已有代码；本次 unsigned 集成构建用户报告通过 | Developer ID、公证、DMG、依赖可达漏洞/许可及原业务最终替代未验收 |
 
 ## 证据与边界
@@ -29,9 +29,13 @@
 
 历史 [09](evidence/wg-int-09-native-packet-flow.md)、[08D](evidence/wg-int-08d-material-admission.md)、[08C](evidence/wg-int-08c-authenticated-configuration-delivery.md)、[08B](evidence/wg-int-08b-app-credential-vault.md)、[08A](evidence/wg-int-08a-managed-launch-boundary.md) 保留。48eee07 编译/链接/桥接 USER_REPORTED PASS、S1 preflight/unsigned、LocalDev 开窗与遮挡修正均不作废，也不自动覆盖新代码。
 
+## EX-INT-02 当前证据
+
+[02 证据](evidence/ex-int-02-foreground-route-lease.md)：35 项 XCTest Debug/Release 通过（26 项事务、9 项临时文件日志），6 项 Python 通过（内含实际 C 适配器 + 模拟 Darwin 内核的 15 场景），另 4 项旧只读合同回归通过。不是全仓回归或 Apple SDK/真实内核执行。前台候选要求操作员管理员权限和 TTY/APPLY，最多 8 个 /24–/32 结果、60 秒；不自提权、不安装服务，不能替代 SEC-02 的 GUI/Helper 身份验证。记录的 snapshot_comparison 不等于实际流量/DNS 行为或全系统恢复。见 [运行说明](external-execution.md)。
+
 ## 当前下一完成标准
 
-EX-INT-02：明确授权下添加受限 DIRECT 例外，验证原 VPN 保持与目标新连接直连，停止时只撤销自有修改并确认残留。必须补 Helper 身份/权限、准确回执与读回、网络变化/失败恢复；EX-INT-01 快照不是可执行权限。OpenVPN 导入层可提前，不先开三套完整运行后端。不要要求先完成 WG 签名才允许推进本条主线。
+对前台执行候选先做 Mac 原生构建，再现场授权受控联调；后续接签名身份验证 Helper 与 GUI。EX-INT-02：明确授权下添加受限 DIRECT 例外，验证原 VPN 保持与目标新连接直连，停止时只撤销自有修改并确认残留。必须补 Helper 身份/权限、准确回执与读回、网络变化/失败恢复；EX-INT-01 快照不是可执行权限。OpenVPN 导入层可提前，不先开三套完整运行后端。不要要求先完成 WG 签名才允许推进本条主线。
 
 ## WireGuard 保留的验收标准（暂缓排队）
 

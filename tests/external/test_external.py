@@ -26,7 +26,10 @@ class ExternalContracts(unittest.TestCase):
         self.assertIn('public var canApply: Bool { false }', source)
 
     def test_native_reader_has_only_fixed_read_only_network_command(self):
-        source = (PACKAGE / 'Sources/ExternalPreview/ExternalSystemReader.swift').read_text()
+        source = (PACKAGE / 'Sources/ExternalCore/ExternalSystemSnapshot.swift').read_text()
+        wrapper = (PACKAGE / 'Sources/ExternalPreview/ExternalSystemReader.swift').read_text()
+        self.assertIn('ExternalSystemSnapshotReader().capture()', wrapper)
+        self.assertNotIn('ExternalExecution', wrapper)
         self.assertEqual(source.count('process.executableURL ='), 1)
         self.assertIn('"/usr/sbin/netstat"', source)
         self.assertIn('process.arguments = ["-rn", "-f", "inet"]', source)
@@ -48,6 +51,7 @@ class ExternalContracts(unittest.TestCase):
 
     def test_all_native_sources_parse_for_mac(self):
         sources = sorted((PACKAGE / 'Sources/ExternalPreview').glob('*.swift'))
+        sources.append(PACKAGE / 'Sources/ExternalCore/ExternalSystemSnapshot.swift')
         result = subprocess.run(['swiftc', '-frontend', '-parse', '-target', 'arm64-apple-macos26.0', *map(str, sources)], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 

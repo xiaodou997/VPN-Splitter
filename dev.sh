@@ -7,7 +7,7 @@ MODE=${1:-doctor}
 if [[ $# -gt 0 ]]; then shift; fi
 usage() {
     cat <<'TEXT'
-用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test]
+用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test]
   doctor          只读检查，一次列出全部环境问题；默认检查界面开发环境
   doctor engine   检查原生引擎构建环境，包括 Go；不下载、不构建
   run             构建并打开 LocalDev；不需要 Go，不连接 VPN
@@ -23,6 +23,8 @@ usage() {
   external-run    构建并打开第三方 VPN 只读识别/规则预览；无需开发签名或 Go
   external-build  只编译 External 开发预览，不打开、不检测网络
   external-test   External 纯逻辑与入口离线回归，不修改网络
+  external-executor-build 仅编译有限前台路由执行器，不运行、不提权、不安装 Helper
+  external-execution-test 运行有限执行/撤销与持久化标记离线回归，不修改网络
 不需要历史补丁或 ZIP；本入口不执行 git pull 或安装任何软件。
 TEXT
 }
@@ -97,6 +99,16 @@ case "$MODE" in
         [[ $# == 0 ]] || { usage >&2; exit 2; }
         require_python
         exec /bin/bash "$ROOT/tools/external/test.sh"
+        ;;
+    external-executor-build)
+        [[ $# == 0 ]] || { usage >&2; exit 2; }
+        require_python
+        exec python3 "$ROOT/tools/external/executor-build.py"
+        ;;
+    external-execution-test)
+        [[ $# == 0 ]] || { usage >&2; exit 2; }
+        require_python
+        exec /bin/bash "$ROOT/tools/external/execution-test.sh"
         ;;
     help|-h|--help) usage ;;
     *) usage >&2; exit 2 ;;
