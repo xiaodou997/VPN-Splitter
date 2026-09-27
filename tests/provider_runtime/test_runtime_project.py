@@ -18,6 +18,12 @@ GEN = load('s1', ROOT / 'tools/s1/generate-project.py')
 
 class RuntimeProjectTests(unittest.TestCase):
     def test_real_generator_overlay_preserves_base_and_links_actual_provider(self):
+        self.check_overlay(aliases=False)
+
+    def test_real_generator_overlay_resolves_directory_aliases(self):
+        self.check_overlay(aliases=True)
+
+    def check_overlay(self, aliases):
         original = GEN.build_project()
         with tempfile.TemporaryDirectory(prefix='vpn-runtime-project-') as d:
             root = Path(d) / 'repository with space'; root.mkdir()
@@ -28,6 +34,14 @@ class RuntimeProjectTests(unittest.TestCase):
             for filename in RUNTIME.SOURCES:
                 path = root / 'integrations/wireguard' / filename; path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / 'integrations/wireguard' / filename, path)
+            if aliases:
+                # Exercise macOS-style directory aliases on every platform, including
+                # paths with spaces. No hard-coded /var or /private prefix rewriting.
+                root_alias = Path(d) / 'repository alias'; root_alias.symlink_to(root, target_is_directory=True)
+                run_alias = Path(d) / 'run alias'; run_alias.symlink_to(run, target_is_directory=True)
+                root, run = root_alias, run_alias
+                self.assertNotEqual(str(root), str(root.resolve()))
+                self.assertNotEqual(str(run), str(run.resolve()))
             project = RUNTIME.generate(root, run, GEN)
             generated = json.loads((project.parent / 'project-objects.json').read_text()); objects = generated['objects']
             self.assertEqual(GEN.build_project(), original)
@@ -35,12 +49,13 @@ class RuntimeProjectTests(unittest.TestCase):
             self.assertEqual(set(products), {'PolicyCore', 'ProviderConfiguration', 'ProviderSession', 'ManagedSettings', 'ManagedSettingsApple', 'WireGuardKit'})
             build = objects[GEN.ident('tunnel.Release')]['buildSettings']
             self.assertIn('VPNSPLITTER_PACKET_FLOW_RUNTIME', build['SWIFT_ACTIVE_COMPILATION_CONDITIONS'])
-            self.assertIn(str(run / 'lib/libwg-go.a'), build['OTHER_LDFLAGS'])
+            # Match the generator's canonical paths, including macOS /var -> /private/var.
+            self.assertIn(str((run / 'lib/libwg-go.a').resolve()), build['OTHER_LDFLAGS'])
             self.assertTrue(plistlib.loads(Path(build['INFOPLIST_FILE']).read_bytes())['VPNPacketFlowRuntime'])
             self.assertEqual(len([x for x in objects.values() if x['isa'] == 'PBXNativeTarget']), 2)
             self.assertFalse(any(x['isa'] == 'XCRemoteSwiftPackageReference' for x in objects.values()))
             refs = [objects[x['fileRef']]['path'] for x in objects.values() if x['isa'] == 'PBXBuildFile' and 'fileRef' in x]
-            for filename in RUNTIME.SOURCES: self.assertIn(str(root / 'integrations/wireguard' / filename), refs)
+            for filename in RUNTIME.SOURCES: self.assertIn(str((root / 'integrations/wireguard' / filename).resolve()), refs)
             self.assertNotIn('packet_flow/fixtures', (project / 'project.pbxproj').read_text())
     def test_explicit_commands_are_routed_without_install_or_run(self):
         with tempfile.TemporaryDirectory(prefix='vpn-runtime-dispatch-') as d:

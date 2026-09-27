@@ -141,11 +141,17 @@ private final class ManagedXPCListener: NSObject, NSXPCListenerDelegate, @unchec
         connection.interruptionHandler = { [weak connection] in closed(); connection?.invalidate() }
         connection.resume()
         // Also bound clients that connect but never send hello. No permanent secret inbox.
-        Task { @MainActor [weak connection] in
+        Task { @MainActor [weak self, broker] in
             try? await Task.sleep(nanoseconds: 15_000_000_000)
             // Only an already consumed, explicit run is promoted beyond staging expiry.
             // The kernel connection remains the revocation source; no timer renews it.
-            if !broker.hasActiveConnection(id) { alive.close(); broker.close(id); connection?.invalidate() }
+            if !broker.hasActiveConnection(id) {
+                alive.close(); broker.close(id)
+                // Do not transfer NSXPCConnection into this actor-isolated task.
+                // The existing listener registry owns it; end removes under lock
+                // and invalidates after unlocking, so callbacks may safely re-enter.
+                self?.end(id)
+            }
         }
         return true
     }
