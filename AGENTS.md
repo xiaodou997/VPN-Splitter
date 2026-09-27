@@ -8,13 +8,15 @@
 
 用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
-## 当前优先级：正式 WireGuard 执行链（2026-09-26）
+## 当前优先级：External 优先（2026-09-27）
 
-用户已要求从 LocalDev 转向首条真实 WireGuard IPv4 Include 路径：单配置、首轮单 Peer、指定网段 VPN、其余直连，并能取消/断开及确认停止后的系统状态。不要用更多 UI 或模拟数量代替这条路径。开发签名仅在首次真实联调前恢复；本条不授权激活扩展、读取真实密钥或修改网络。
+用户重新强调原业务目标是第三方 VPN 分流，并已要求按照调整顺序继续。执行次序现在为 External 识别/预览 → 受限执行/撤销；OpenVPN 导入与兼容性检查提前；WireGuard 暂停签名催办和新增功能。见 docs/adr/ADR-EX-INT-01-external-first.md、docs/external-development.md 与 docs/roadmap.md。该 ADR 替代 ADR-001 D09 的排队顺序，不修改各阶段验收门槛或 EX-01～08/OV-01～08 范围。
 
-先读 docs/acceptance-status.md 与 docs/adr/ADR-WG-INT-08A-managed-launch-contract.md。LocalDev 为 LD-03B，WG-INT-07 为进程内会话接线；WG-INT-08A 新增正式启动元数据边界与 App 提交辅助代码，尚未接真实连接 UI、凭据授权来源、自有隧道资源或正式会话运行。合法 Managed 请求仍返回 2001，错误请求返回 2002；旧 S1 smoke 保留 1001。不能把这些错误门控改成成功来宣布接通。
+WG-INT-10 正式集成 unsigned 已有 USER_REPORTED PASS，见 docs/evidence/wg-int-10-user-native-build.md；不是可用 VPN/签名/双出口验收。已有产物、48eee07 和 S0 单目标路径证据保留，不要求重做。无需先执行 provider-build --sign 才能推进 External。
 
-日常入口为 dev.sh：run / test 保持 LocalDev；engine / engine-test 保持原生候选及其回归；provider-test 测试正式启动边界，包含明确的框架替身，不是真实 NE 验收。48eee07 用户报告的原生构建成功保留且仅覆盖该基线；新增代码的 Apple SDK 编译和真实功能另验。下一优先项是凭据的实际授权交付、自有数据通道、会话/网络/撤销接线；不得放宽 LocalDev ACL 或把 UUID/引用相等当作授权证明。
+EX-INT-01 在 Packages/ExternalCore 提供实际 macOS 只读采集、IPv4 路由形态识别和 PolicyCore DIRECT 预览。dev.sh external-run 打开独立、仅 ad-hoc 的 External 开发预览；external-build 只编译；external-test 是离线回归，无需 Go 或开发签名。原 run/test、WG/S1 源码和权限保持不变。不要把新预览说成已集成到 LocalDev 或已能应用分流。
+
+下一交付为 EX-INT-02 的受限执行与可确认撤销，须单独确定路由操作、身份/授权、操作回执、网络版本和持久化恢复。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
 
 ## LocalDev 历史调序与持续安全边界
 

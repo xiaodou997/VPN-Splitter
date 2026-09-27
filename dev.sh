@@ -7,7 +7,7 @@ MODE=${1:-doctor}
 if [[ $# -gt 0 ]]; then shift; fi
 usage() {
     cat <<'TEXT'
-用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test]
+用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test]
   doctor          只读检查，一次列出全部环境问题；默认检查界面开发环境
   doctor engine   检查原生引擎构建环境，包括 Go；不下载、不构建
   run             构建并打开 LocalDev；不需要 Go，不连接 VPN
@@ -20,6 +20,9 @@ usage() {
   packet-flow-test 运行数据包桥接离线测试；需要已有 Go/Swift/C 编译器，不安装工具
   provider-build  构建集成 packetFlow 的正式 App/扩展，默认 unsigned；--fetch 下载固定依赖，--sign 使用本地签名；不安装、不启动
   provider-runtime-test 运行正式生命周期、设置门控与运行授权离线回归；不修改网络
+  external-run    构建并打开第三方 VPN 只读识别/规则预览；无需开发签名或 Go
+  external-build  只编译 External 开发预览，不打开、不检测网络
+  external-test   External 纯逻辑与入口离线回归，不修改网络
 不需要历史补丁或 ZIP；本入口不执行 git pull 或安装任何软件。
 TEXT
 }
@@ -84,6 +87,16 @@ case "$MODE" in
         [[ $# == 0 ]] || { usage >&2; exit 2; }
         require_python
         exec /bin/bash "$ROOT/tools/provider/runtime-test.sh"
+        ;;
+    external-run|external-build)
+        [[ $# == 0 ]] || { usage >&2; exit 2; }
+        require_python
+        exec python3 "$ROOT/tools/external/build.py" "${MODE#external-}"
+        ;;
+    external-test)
+        [[ $# == 0 ]] || { usage >&2; exit 2; }
+        require_python
+        exec /bin/bash "$ROOT/tools/external/test.sh"
         ;;
     help|-h|--help) usage ;;
     *) usage >&2; exit 2 ;;
