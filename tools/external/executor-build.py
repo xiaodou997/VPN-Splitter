@@ -10,6 +10,7 @@ import hashlib
 import os
 from pathlib import Path
 import platform
+import shlex
 import shutil
 import signal
 import subprocess
@@ -68,9 +69,16 @@ def main() -> int:
         shutil.copy2(source, target)
         arch = subprocess.check_output(['/usr/bin/xcrun', 'lipo', '-archs', str(target)], text=True, timeout=30).strip()
         if arch != 'arm64': raise ValueError('E_ARCH')
-        # Local ad-hoc build identity only, not authority for a privileged GUI service.
-        subprocess.run(['/usr/bin/codesign', '--sign', '-', '--timestamp=none', str(target)], check=True, timeout=30)
-        subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(target)], check=True, timeout=30)
+        # The arm64 linker may already have signed the executable. Replace only
+        # this run's newly copied artifact, never the SwiftPM source or an installed tool.
+        # Local ad-hoc identity is not authority for a privileged GUI service.
+        with (run / 'build.log').open('ab') as log:
+            for command in (
+                ['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', str(target)],
+                ['/usr/bin/codesign', '--verify', '--strict', str(target)]
+            ):
+                log.write(('\n$ ' + shlex.join(command) + '\n').encode('utf-8')); log.flush()
+                subprocess.run(command, check=True, timeout=30, stdout=log, stderr=subprocess.STDOUT)
         digest = hashlib.sha256(target.read_bytes()).hexdigest()
         (run / 'artifact.sha256').write_text(digest + '\n')
         print('schema=external-executor-build-v1\ncompile=PASS\nexecution=NOT_RUN\nnetwork_settings=NOT_APPLIED\nhelper_installation=NOT_REQUESTED')
