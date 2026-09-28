@@ -68,13 +68,25 @@ final class ExternalModel: ObservableObject {
 
 @main
 struct ExternalPreviewApp: App {
-    @StateObject private var model = ExternalModel()
+    @NSApplicationDelegateAdaptor(ExternalTerminationDelegate.self) private var delegate
+    @StateObject private var model: ExternalModel
+    @StateObject private var profiles: ExternalProfilesModel
+    init() {
+        let network = ExternalModel()
+        let documents = ExternalProfilesModel()
+        _model = StateObject(wrappedValue: network)
+        _profiles = StateObject(wrappedValue: documents)
+        ExternalTerminationDelegate.shouldTerminate = { [weak network, weak documents] in
+            guard documents?.confirmDiscard() != false else { return false }
+            network?.cancel(); return true
+        }
+    }
     var body: some Scene {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("第三方 VPN · EX-INT-01").font(.title2).bold()
-                    Text("External 开发预览：原客户端负责连接，本应用只检测和预览指定目标的直连例外。尚未接入路由执行。")
+                    Text("第三方 VPN · EX-INT-03A").font(.title2).bold()
+                    Text("原客户端负责连接；这里管理本机规则、检测并预览直连例外。应用内 Helper 执行尚未接通。")
                     HStack {
                         Button("检测当前网络（只读）") { model.detect(previewRules: false) }.disabled(model.busy)
                         Button("取消检测 / 清除结果") { model.cancel() }
@@ -93,12 +105,13 @@ struct ExternalPreviewApp: App {
                         }
                     }
                     Divider()
-                    Text("需要直连的 IPv4 地址 / CIDR（每行一条，最多 64 条）").bold()
+                    ExternalProfilesPanel(profiles: profiles)
                     Text("Bypass：保留原 VPN 全局模式，只预览 DIRECT 例外；不是默认直连，也不是按应用分流。")
-                    TextEditor(text: $model.rules).font(.system(.body, design: .monospaced))
-                        .frame(height: 140).border(.secondary).disabled(model.busy)
-                    Button("重新检测并预览直连规则") { model.detect(previewRules: true) }
-                        .disabled(model.busy || model.rules.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("重新检测并预览直连规则") {
+                        model.rules = profiles.enabledRules
+                        model.detect(previewRules: true)
+                    }
+                        .disabled(model.busy || profiles.busy || profiles.editor.mustReload || profiles.hasUnsavedChanges || model.rules.isEmpty)
                     if let preview = model.preview {
                         GroupBox("拟议变更 · NOT_APPLIED") {
                             VStack(alignment: .leading, spacing: 8) {
@@ -115,12 +128,17 @@ struct ExternalPreviewApp: App {
                     Text("原始网络观察只留在内存，不上传或自动保存。网络变化后必须重新检测；结果最多显示 30 秒。")
                         .font(.footnote)
                 }.padding(24)
-            }.frame(minWidth: 800, minHeight: 640)
+            }.frame(minWidth: 880, minHeight: 700)
+                .onChange(of: profiles.changeID, initial: true) { _, _ in
+                    // Selection, editing, save and reload invalidate all old observations.
+                    model.cancel(); model.rules = profiles.enabledRules
+                }
+                .onChange(of: profiles.batchText) { _, _ in model.cancel() }
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in model.cancel() }
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in model.cancel() }
         }.commands {
             CommandGroup(replacing: .appTermination) {
-                Button("退出 External 开发预览") { model.cancel(); NSApplication.shared.terminate(nil) }
+                Button("退出 External 开发预览") { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q")
             }
         }

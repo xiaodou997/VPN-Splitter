@@ -1,14 +1,15 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-27 / EX-INT-02 前台执行候选。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-28 / EX-INT-03A 本机规则方案管理。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
 | 项目 | 当前能力与边界 |
 | --- | --- |
-| EX-INT-01 | 新增 External 开发预览：真实 macOS 只读采集 API、IPv4 路由形态识别、DIRECT 规则与冲突预览；已有离线回归，Mac 原生构建/观察未验收；不能应用路由 |
-| EX-INT-02 前台候选 | 新增真实 PF_ROUTE ADD/GET/DELETE 适配、有限事务、读回/回滚和 root 私有意图标记；手动管理员前台 + TTY/APPLY，非 GUI Helper；离线回归通过，原生构建/路由实测未验收 |
-| External 下一主线 | 原生构建和受控双路径/撤销联调；完善执行诊断，再实现签名认证 Helper 与 GUI 接入。不得将前台管理员工具包装成已经完成的最小权限 IPC |
+| EX-INT-01 / 02 只读路径 | 已有用户报告的执行器原生构建、inspect 和原生 GET probe 通过；界面中的检测仍只读，不等于真实双出口验收 |
+| EX-INT-02 前台候选 | 现场观察到 ADD 后回包超时及残留，已由用户人工恢复并 audit 未见候选残留；FIX-08 已提交，修复后自动确认/撤销仍未验收。人工恢复不是自动回滚通过 |
+| EX-INT-03A | External 界面接入 16 套规则方案保存/选择/复制/删除，逐条编辑/停用/排序，编辑保护与版本冲突拒绝；20 项核心及 3 项界面模型回归通过，Mac 新页面未验收；不是完整 Helper |
+| External 下一主线 | 受限 Helper 身份验证、连接会话与 GUI 应用/停止接线；FIX-08 真机运行验收独立保留，不阻断无网络副作用的开发。不以规则文件/预览或 UUID 代替执行授权 |
 | OpenVPN 提前项 | .ovpn 导入、材料引用、脚本/插件拒绝与兼容性报告；本批尚未实现，不冒充可连接 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
@@ -23,6 +24,8 @@ EX-INT-01 使用 `/bin/bash dev.sh external-run` 打开独立、仅本机 ad-hoc
 External 首轮保持原规范：兼容的路由型全局 VPN + 指定 IPv4 DIRECT 例外；不是默认直连 Include，不是按应用/进程，不改原客户端认证/配置/进程/默认路由/DNS。当前预览拒绝多物理路径、多隧道、格式未知、同级或更具体路由冲突及保护范围重叠；已有直连条目也不认领、不删除。后续必须验证原 VPN 保持、指定目标直连及停止后无无法解释的残留。
 
 已有 [WG 原生构建证据](evidence/wg-int-10-user-native-build.md)、[FIX-01](evidence/wg-int-10-fix-01-build-blockers.md)、[WG-INT-10](evidence/wg-int-10-provider-runtime.md)、[S0 样本](evidence/s0-single-target-user-result.md)与 [需求规范](requirements-v0.1.md)保留。下面的阶段退出条件是验收约束，不再作为禁止提前开展 External 开发的排队锁。main 统一非强制交付，不发更新 ZIP，不删除本机缓存、锁或历史证据。
+
+EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、IPv4 规则及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
 
 ## 1. 执行规则
 

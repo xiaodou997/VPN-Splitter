@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
 """Build the read-only External preview. No developer identity, extension, Helper or Go.
-Only 'run' opens the newly built local app; it still collects nothing before a button press.
+Only 'run' opens the newly built local app; it reads no system network state before a button press.
 """
 from __future__ import annotations
 import argparse
@@ -11,6 +11,7 @@ from pathlib import Path
 import platform
 import plistlib
 import shutil
+import shlex
 import signal
 import subprocess
 import sys
@@ -44,6 +45,9 @@ def main() -> int:
     if platform.system() != 'Darwin' or platform.machine() != 'arm64':
         print('E_PLATFORM: External preview requires macOS 26+ on Apple Silicon.', file=sys.stderr)
         return 69
+    if os.getuid() == 0 or os.geteuid() == 0:
+        print('E_BUILD_AS_ROOT: use an ordinary user account.', file=sys.stderr)
+        return 77
     run = None
     lock = None
     try:
@@ -77,8 +81,14 @@ def main() -> int:
             'NSHighResolutionCapable': True
         }))
         # Local development identity only; this app has NO privileged entitlement or extension.
-        subprocess.run(['/usr/bin/codesign', '--sign', '-', '--timestamp=none', str(app)], check=True, timeout=30)
-        subprocess.run(['/usr/bin/codesign', '--verify', '--strict', str(app)], check=True, timeout=30)
+        # Replace only this run's new bundle copy, as for the foreground executor.
+        with (run / 'build.log').open('ab') as log:
+            for command in (
+                ['/usr/bin/codesign', '--force', '--sign', '-', '--timestamp=none', str(app)],
+                ['/usr/bin/codesign', '--verify', '--strict', str(app)]
+            ):
+                log.write(('\n$ ' + shlex.join(command) + '\n').encode('utf-8')); log.flush()
+                subprocess.run(command, check=True, timeout=30, stdout=log, stderr=subprocess.STDOUT)
         print('schema=external-preview-build-v1\ncompile=PASS\nnetwork_settings=NOT_APPLIED\nextension_activation=NOT_REQUESTED')
         print('App: ' + str(app))
         if args.mode == 'run':
