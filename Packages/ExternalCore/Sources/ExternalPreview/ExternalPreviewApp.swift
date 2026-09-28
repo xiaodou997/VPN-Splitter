@@ -23,7 +23,8 @@ final class ExternalModel: ObservableObject {
         preview = nil; observation = nil; expiry?.cancel()
         let id = UUID(); token = id; let text = rules
         busy = true; message = "正在只读检测，未修改网络…"
-        operation = Task { @MainActor in
+        // Make the existing strong capture explicit; the separate expiry task stays weak.
+        operation = Task { @MainActor [self] in
             defer { if token == id { busy = false; operation = nil } }
             do {
                 let value = try await reader.capture()
