@@ -111,15 +111,19 @@ HARNESS = r'''
         switch scenario {
         case "operation-retains-expiry-does-not":
             var model: ExternalModel? = ExternalModel()
-            weak var observedModel = model
+            // Bind the initial object weakly, not the subsequently cleared model variable.
+            // A Boolean probe also avoids returning a strong reference to the caller.
+            let modelIsAlive: @MainActor () -> Bool = { [weak observedModel = model] in
+                observedModel != nil
+            }
             require(await fixture.count == 0, "creating the model must not collect")
             model!.detect(previewRules: false)
             await Task.yield()
             try await waitUntil { await fixture.count == 1 }
             model = nil
-            require(observedModel != nil, "in-flight operation lost its existing strong capture")
+            require(modelIsAlive(), "in-flight operation lost its existing strong capture")
             await fixture.finish(1, value: snapshot())
-            try await waitUntil { observedModel == nil }
+            try await waitUntil { !modelIsAlive() }
         case "cancel-rejects-late-read":
             let model = ExternalModel()
             model.detect(previewRules: false)
@@ -212,6 +216,12 @@ class PreviewCaptureTests(unittest.TestCase):
     def test_explicit_outer_capture_and_weak_expiry_contract(self):
         source = SOURCE.read_text()
         self.assert_capture_contract(source)
+        # Also guard the probe spelling on compilers predating WeakMutability.
+        self.assertNotIn('weak var', HARNESS)
+        self.assertNotIn('weak let', HARNESS)
+        self.assertIn('let modelIsAlive: @MainActor () -> Bool = { [weak observedModel = model] in', HARNESS)
+        self.assertIn('require(modelIsAlive(),', HARNESS)
+        self.assertIn('try await waitUntil { !modelIsAlive() }', HARNESS)
         # This guard still catches a regression on compilers predating the diagnostic.
         with self.assertRaises(AssertionError):
             self.assert_capture_contract(source.replace(EXPLICIT, IMPLICIT))
