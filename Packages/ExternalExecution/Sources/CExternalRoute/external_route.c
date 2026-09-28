@@ -91,16 +91,25 @@ static int decode(const unsigned char *bytes, size_t length, struct er_message *
         size_t n = bytes[offset], span = aligned(n);
         if (span > length - offset || (n < 2 && i != RTAX_NETMASK)) return bad_decode(out, 4);
         unsigned family = bytes[offset + 1];
-        if (i == RTAX_DST || i == RTAX_GATEWAY || i == RTAX_NETMASK) {
-            if (i == RTAX_NETMASK || family == AF_INET) {
+        if (i == RTAX_NETMASK) {
+            /* A radix key mask is not a standalone socket address. XNU may fill
+             * its skipped prefix bytes (including the family position) with 0xff
+             * and omit trailing zero bytes. Interpret its bits using the separately
+             * validated IPv4 destination, not the mask's apparent family. Never
+             * read beyond sa_len into alignment padding or the following IFP.
+             * Diagnostic field 7 (the old mask-family rejection) stays reserved. */
+            if (n > sizeof(struct sockaddr_in)) return bad_decode(out, 5);
+            struct sockaddr_in mask; memset(&mask, 0, sizeof(mask));
+            memcpy(&mask, bytes + offset, n);
+            out->mask = ntohl(mask.sin_addr.s_addr); out->has_mask = 1;
+        } else if (i == RTAX_DST || i == RTAX_GATEWAY) {
+            if (family == AF_INET) {
                 if (n > sizeof(struct sockaddr_in)) return bad_decode(out, 5);
-                if (i != RTAX_NETMASK && n < offsetof(struct sockaddr_in, sin_addr) + 4) return bad_decode(out, 6);
-                if (i == RTAX_NETMASK && family != 0 && family != AF_INET) return bad_decode(out, 7);
+                if (n < offsetof(struct sockaddr_in, sin_addr) + 4) return bad_decode(out, 6);
                 struct sockaddr_in sa; memset(&sa, 0, sizeof(sa)); memcpy(&sa, bytes + offset, n);
                 uint32_t ip = ntohl(sa.sin_addr.s_addr);
                 if (i == RTAX_DST) { out->destination = ip; out->has_destination = 1; }
                 if (i == RTAX_GATEWAY) { out->gateway = ip; out->has_gateway = 1; }
-                if (i == RTAX_NETMASK) { out->mask = ip; out->has_mask = 1; }
             } else if (i == RTAX_DST || family != AF_LINK) return bad_decode(out, 8);
         }
         if (i == RTAX_IFP) {

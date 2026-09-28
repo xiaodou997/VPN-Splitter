@@ -11,13 +11,14 @@ static struct { unsigned char bytes[512]; size_t length; int truncated; } messag
 static int head, tail, add_calls, delete_calls, fail_add, suppress_reply, wrong_seq, wrong_type, wrong_index;
 static int inject_after_get, root = 1, sockets, closes;
 static int get_calls, fault_get_index, get_fault, inject_before_add, suppress_delete;
+static int radix_replies;
 static uint64_t clock_ns;
 static er_spec table[8]; static int table_count;
 static er_spec specimen(void) { return (er_spec){0xc6336404u, 0xc0000201u, 2, 9, 32}; }
 static void reset(void) {
     head = tail = add_calls = delete_calls = fail_add = suppress_reply = wrong_seq = wrong_type = wrong_index = 0;
     inject_after_get = table_count = sockets = closes = 0; root = 1; clock_ns = 1000000000ull;
-    get_calls = fault_get_index = get_fault = inject_before_add = suppress_delete = 0;
+    get_calls = fault_get_index = get_fault = inject_before_add = suppress_delete = radix_replies = 0;
 }
 int mach_timebase_info(mach_timebase_info_data_t *info) { info->numer = info->denom = 1; return 0; }
 uint64_t mach_continuous_time(void) { clock_ns += 1000; return clock_ns; }
@@ -30,11 +31,56 @@ int fake_setsockopt(int fd, int level, int name, const void *value, socklen_t le
 uid_t fake_getuid(void) { return root ? 0 : 501; }
 uid_t fake_geteuid(void) { return fake_getuid(); }
 pid_t fake_getpid(void) { return 4321; }
+/* Independent synthetic response encoder. Do not round-trip the production
+ * request() builder when testing a returned radix mask. This uses fixture ABI
+ * declarations, not captured user bytes or a claim about the installed SDK. */
+static size_t wire_span(size_t n) { return n == 0 ? 4 : ((n + 3) / 4) * 4; }
+static size_t mask_offset(void) { return sizeof(struct rt_msghdr) + 2 * sizeof(struct sockaddr_in); }
+static size_t mask_wire(unsigned char bytes[512], er_spec spec, int type, int sequence,
+                        pid_t pid, int error, int flags, unsigned char family, int compact) {
+    struct rt_msghdr h; memset(&h, 0, sizeof(h));
+    h.rtm_version = RTM_VERSION; h.rtm_type = (uint8_t)type;
+    h.rtm_index = spec.interface_index; h.rtm_pid = pid; h.rtm_seq = sequence; h.rtm_errno = error;
+    h.rtm_addrs = RTA_DST | RTA_GATEWAY | RTA_NETMASK | RTA_IFP;
+    h.rtm_flags = flags >= 0 ? flags : RTF_UP | RTF_GATEWAY | RTF_STATIC | RTF_PROTO2 |
+                                     (spec.prefix == 32 ? RTF_HOST : 0);
+    memset(bytes, 0, 512);
+    struct sockaddr_in sa; memset(&sa, 0, sizeof(sa));
+    sa.sin_len = sizeof(sa); sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(spec.destination);
+    size_t offset = sizeof(h);
+    memcpy(bytes + offset, &sa, sizeof(sa)); offset += sizeof(sa);
+    sa.sin_addr.s_addr = htonl(spec.gateway);
+    memcpy(bytes + offset, &sa, sizeof(sa)); offset += sizeof(sa);
+    unsigned char mask[sizeof(struct sockaddr_in)]; memset(mask, 0, sizeof(mask));
+    // The three skipped bytes are opaque to the IPv4 prefix, not an address family.
+    memset(mask + 1, family, offsetof(struct sockaddr_in, sin_addr) - 1);
+    for (unsigned bit = 0; bit < spec.prefix; ++bit)
+        mask[offsetof(struct sockaddr_in, sin_addr) + bit / 8] |= (unsigned char)(0x80u >> (bit % 8));
+    size_t n = sizeof(mask);
+    if (compact) {
+        n = spec.prefix == 0 ? 0 : offsetof(struct sockaddr_in, sin_addr) + (spec.prefix + 7) / 8;
+    }
+    mask[0] = (unsigned char)n;
+    memcpy(bytes + offset, mask, n);
+    // Padding deliberately nonzero: decode must zero-extend logical mask bytes,
+    // never interpret this padding (including sa_len=0) as prefix bits.
+    memset(bytes + offset + n, 0xa5, wire_span(n) - n);
+    if (n == 0) bytes[offset] = 0;
+    offset += wire_span(n);
+    struct sockaddr_dl link; memset(&link, 0, sizeof(link));
+    link.sdl_len = sizeof(link); link.sdl_family = AF_LINK; link.sdl_index = spec.interface_index;
+    memcpy(bytes + offset, &link, sizeof(link)); offset += sizeof(link);
+    h.rtm_msglen = (uint16_t)offset; memcpy(bytes, &h, sizeof(h));
+    return offset;
+}
 static void enqueue(er_spec spec, int type, int sequence, pid_t pid, int error, int flags) {
     assert(tail < 32);
     er_context dummy; memset(&dummy, 0, sizeof(dummy)); dummy.pid = pid;
     size_t length;
-    assert(request(&dummy, RTM_ADD, spec, messages[tail].bytes, &length));
+    if (radix_replies) {
+        length = mask_wire(messages[tail].bytes, spec, type, sequence, pid, error, flags, 0xff, 1);
+    } else { assert(request(&dummy, RTM_ADD, spec, messages[tail].bytes, &length)); }
     struct rt_msghdr h; memcpy(&h, messages[tail].bytes, sizeof(h));
     h.rtm_type = (uint8_t)type; h.rtm_seq = sequence; h.rtm_pid = pid; h.rtm_errno = error;
     if (flags >= 0) h.rtm_flags = flags;
@@ -74,6 +120,10 @@ ssize_t fake_write(int fd, const void *bytes, size_t n) {
             messages[tail - 1].bytes[ifp + 1] = AF_INET;
         }
         if (fault == 7) messages[tail - 1].truncated = 1;
+        if (fault == 10) {
+            unsigned char *mask = messages[tail - 1].bytes + mask_offset();
+            mask[offsetof(struct sockaddr_in, sin_addr)] = 0xa0; // non-contiguous /1 or /32
+        }
         if (inject_before_add && get_calls == 2) enqueue(s, 99, 0, 777, 0, flags);
         if (fault == 4) { errno = EACCES; return -1; }
         if (found && inject_after_get) {
@@ -111,6 +161,109 @@ int fake_poll(struct pollfd *fds, nfds_t count, int timeout) {
     assert(count == 1 && fds[0].fd == 20);
     if (head < tail) { fds[0].revents = POLLIN; return 1; }
     clock_ns += (uint64_t)timeout * 1000000u; return 0;
+}
+static int netmask_scenarios(void) {
+    int scenarios = 0;
+    unsigned char bytes[512]; struct er_message decoded;
+    // Every IPv4 prefix and both /1 halves: opaque family bytes never select IPv6.
+    const unsigned char families[] = {0, AF_INET, 0xff, AF_LINK, 30};
+    for (unsigned family = 0; family < sizeof(families); ++family) {
+        for (unsigned prefix = 0; prefix <= 32; ++prefix) {
+            for (int compact = 0; compact <= 1; ++compact) {
+                er_spec s = specimen(); s.destination = prefix ? 0x80000000u : 0; s.prefix = (uint8_t)prefix;
+                size_t n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, -1, families[family], compact);
+                assert(decode(bytes, n, &decoded));
+                assert(decoded.has_mask && decoded.prefix == prefix && decoded.destination == s.destination);
+                assert(decoded.index == s.interface_index && decoded.gateway == s.gateway);
+                if (prefix == 1) {
+                    s.destination = 0; n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, -1, families[family], compact);
+                    assert(decode(bytes, n, &decoded) && decoded.prefix == 1 && decoded.mask == 0x80000000u);
+                }
+            }
+        }
+    }
+    scenarios++;
+    // Host routes may omit RTA_NETMASK entirely. A compact zero mask is NOT /32.
+    er_spec s = specimen();
+    size_t n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+    size_t offset = mask_offset(), span = wire_span(bytes[offset]);
+    memmove(bytes + offset, bytes + offset + span, n - offset - span); n -= span;
+    struct rt_msghdr h; memcpy(&h, bytes, sizeof(h)); h.rtm_addrs &= ~RTA_NETMASK;
+    h.rtm_msglen = (uint16_t)n; memcpy(bytes, &h, sizeof(h));
+    assert(decode(bytes, n, &decoded) && !decoded.has_mask && decoded.prefix == 32);
+    s.destination = 0; s.prefix = 0;
+    n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, RTF_UP | RTF_HOST, 0xff, 1);
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 12); scenarios++;
+    // The mask-slot exception must not permit invalid DST/GATEWAY/IFP families.
+    for (unsigned slot = 0; slot < 3; ++slot) {
+        n = mask_wire(bytes, specimen(), RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+        size_t field = slot < 2 ? sizeof(h) + slot * sizeof(struct sockaddr_in) :
+                                 mask_offset() + wire_span(bytes[mask_offset()]);
+        bytes[field + 1] = 0xff;
+        assert(!decode(bytes, n, &decoded));
+        assert(decoded.decode_failure == (slot < 2 ? 8 : 9));
+    }
+    scenarios++;
+    // Mask lengths and alignment bounds remain enforced.
+    n = mask_wire(bytes, specimen(), RTM_GET, 1, 4321, 0, -1, 0xff, 0);
+    bytes[mask_offset()] = sizeof(struct sockaddr_in) + 1;
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 5);
+    n = mask_wire(bytes, specimen(), RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+    bytes[mask_offset()] = 255;
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 4);
+    n = mask_wire(bytes, specimen(), RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+    memcpy(&h, bytes, sizeof(h)); h.rtm_msglen = (uint16_t)(mask_offset() + 7); memcpy(bytes, &h, sizeof(h));
+    assert(!decode(bytes, h.rtm_msglen, &decoded) && decoded.decode_failure == 4); scenarios++;
+    // Non-contiguous masks, noncanonical destinations and wrong host masks still fail.
+    s = specimen(); s.destination = 0x80000000u; s.prefix = 1;
+    n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+    bytes[mask_offset() + offsetof(struct sockaddr_in, sin_addr)] = 0xa0;
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 13);
+    s.destination = 0x80000001u;
+    n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, -1, 0xff, 1);
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 14);
+    s.destination = 0x80000000u;
+    n = mask_wire(bytes, s, RTM_GET, 1, 4321, 0, RTF_UP | RTF_HOST, 0xff, 1);
+    assert(!decode(bytes, n, &decoded) && decoded.decode_failure == 12); scenarios++;
+    // Complete GET-only preflight with canonical target and gateway mask replies.
+    for (int as_root = 0; as_root <= 1; ++as_root) {
+        reset(); root = as_root; radix_replies = 1; er_context *c = er_open_query(); assert(c);
+        er_result r = er_probe(c, specimen()); er_diagnostic d = er_get_diagnostic(c);
+        assert(r.status == 0 && !r.token && get_calls == 2 && d.stage == ER_STAGE_GATEWAY_GET);
+        assert(d.reason == ER_REASON_NONE && d.decode_field == 0 && d.mutation_attempts == 0);
+        assert(er_add(c, specimen()).status == 3 && er_remove(c, 1).status == 1);
+        struct er_message reply;
+        assert(exchange(c, RTM_ADD, specimen(), &reply) == 1);
+        assert(exchange(c, RTM_DELETE, specimen(), &reply) == 1);
+        assert(add_calls == 0 && delete_calls == 0 && c->used == 0 && !er_owns(c, 1)); er_close(c);
+    }
+    scenarios++;
+    // Shared decoder must also handle returned masks in ADD/GET/DELETE and events.
+    for (unsigned prefix = 24; prefix <= 32; ++prefix) {
+        reset(); radix_replies = 1; er_context *c = er_open();
+        s = specimen(); s.destination = 0xc6336400u; s.prefix = (uint8_t)prefix;
+        er_result r = er_add(c, s); assert(r.status == 0 && er_owns(c, r.token));
+        assert(er_remove(c, r.token).status == 0 && table_count == 0);
+        assert(er_get_diagnostic(c).mutation_attempts == 2 && add_calls == 1 && delete_calls == 1);
+        assert(er_remove(c, r.token).status == 1 && delete_calls == 1); er_close(c);
+    }
+    scenarios++;
+    reset(); radix_replies = 1; er_context *c = er_open(); er_result r = er_add(c, specimen());
+    assert(r.status == 0); enqueue(specimen(), RTM_CHANGE, 0, 777, 0, -1);
+    assert(er_drain(c) && !er_owns(c, r.token));
+    assert(er_remove(c, r.token).status == 1 && delete_calls == 0); er_close(c); scenarios++;
+    // A malformed mask still rejects before ADD; no write-uncertainty upgrade.
+    for (int query = 1; query <= 2; ++query) {
+        reset(); radix_replies = 1; c = er_open(); get_fault = 10; fault_get_index = query;
+        assert(er_add(c, specimen()).status == 3);
+        er_diagnostic d = er_get_diagnostic(c);
+        assert(d.stage == (query == 1 ? ER_STAGE_TARGET_GET : ER_STAGE_GATEWAY_GET));
+        assert(d.reason == ER_REASON_DECODE && d.mutation_attempts == 0);
+        assert(d.decode_field == (query == 1 ? 13 : 12));
+        assert(add_calls == 0 && delete_calls == 0 && table_count == 0); er_close(c);
+    }
+    scenarios++;
+    return scenarios;
 }
 int main(void) {
     int scenarios = 0;
@@ -209,6 +362,7 @@ int main(void) {
     assert(er_remove(c, added.token).status == 2);
     assert(er_get_diagnostic(c).stage == ER_STAGE_DELETE && er_get_diagnostic(c).mutation_attempts == 2);
     assert(er_remove(c, added.token).status == 1 && delete_calls == 1); er_close(c); scenarios++;
+    scenarios += netmask_scenarios();
     printf("routing-socket-adapter=PASS scenarios=%d source=ACTUAL darwin_kernel_io=TEST_DOUBLES network=NOT_APPLIED\n", scenarios);
     return 0;
 }
