@@ -32,15 +32,33 @@ struct er_owned { er_spec spec; int live; };
 struct er_context {
     int fd, sequence, poisoned, used;
     pid_t pid;
+    int writable, failed;
+    uint32_t mutation_attempts;
+    er_diagnostic diagnostic, first_failure;
     struct er_owned owned[ER_LIMIT];
 };
 struct er_message {
     struct rt_msghdr header;
     uint32_t destination, gateway, mask;
     unsigned prefix, index;
-    int has_destination, has_gateway, has_mask;
+    int has_destination, has_gateway, has_mask, decode_failure;
 };
 static er_result result(int status, uint64_t token) { return (er_result){status, token}; }
+static void begin_stage(er_context *c, int stage) {
+    memset(&c->diagnostic, 0, sizeof(c->diagnostic)); c->diagnostic.stage = stage;
+}
+static void diagnose(er_context *c, int reason, int field, int system_errno) {
+    c->diagnostic.reason = reason; c->diagnostic.decode_field = field;
+    c->diagnostic.system_errno = system_errno;
+    if (!c->failed) { c->first_failure = c->diagnostic; c->failed = 1; }
+}
+er_diagnostic er_get_diagnostic(const er_context *c) {
+    er_diagnostic d = {0};
+    if (!c) { d.reason = ER_REASON_INVALID; return d; }
+    d = c->failed ? c->first_failure : c->diagnostic;
+    d.mutation_attempts = c->mutation_attempts; return d;
+}
+static int bad_decode(struct er_message *out, int field) { out->decode_failure = field; return 0; }
 static size_t aligned(size_t n) { return n ? (n + 3u) & ~(size_t)3u : 4u; }
 static uint32_t prefix_mask(unsigned n) { return n ? UINT32_MAX << (32u - n) : 0; }
 static int unicast(uint32_t value) {
@@ -59,50 +77,52 @@ double er_continuous_seconds(void) {
 }
 /* Copies from bounded bytes; no unaligned casts or hardcoded rt_msghdr ABI sizes. */
 static int decode(const unsigned char *bytes, size_t length, struct er_message *out) {
-    if (length < sizeof(struct rt_msghdr)) return 0;
-    memset(out, 0, sizeof(*out)); memcpy(&out->header, bytes, sizeof(out->header));
+    memset(out, 0, sizeof(*out));
+    if (length < sizeof(struct rt_msghdr)) return bad_decode(out, 1);
+    memcpy(&out->header, bytes, sizeof(out->header));
     struct rt_msghdr *h = &out->header;
     if (h->rtm_msglen != length || h->rtm_version != RTM_VERSION || h->rtm_addrs < 0 ||
-        ((unsigned)h->rtm_addrs >> RTAX_MAX) != 0) return 0;
+        ((unsigned)h->rtm_addrs >> RTAX_MAX) != 0) return bad_decode(out, 2);
     out->index = h->rtm_index;
     size_t offset = sizeof(*h);
     for (int i = 0; i < RTAX_MAX; ++i) {
         if (!(h->rtm_addrs & (1 << i))) continue;
-        if (offset + 2 > length) return 0;
+        if (offset + 2 > length) return bad_decode(out, 3);
         size_t n = bytes[offset], span = aligned(n);
-        if (span > length - offset || (n < 2 && i != RTAX_NETMASK)) return 0;
+        if (span > length - offset || (n < 2 && i != RTAX_NETMASK)) return bad_decode(out, 4);
         unsigned family = bytes[offset + 1];
         if (i == RTAX_DST || i == RTAX_GATEWAY || i == RTAX_NETMASK) {
             if (i == RTAX_NETMASK || family == AF_INET) {
-                if (n > sizeof(struct sockaddr_in)) return 0;
-                if (i != RTAX_NETMASK && n < offsetof(struct sockaddr_in, sin_addr) + 4) return 0;
-                if (i == RTAX_NETMASK && family != 0 && family != AF_INET) return 0;
+                if (n > sizeof(struct sockaddr_in)) return bad_decode(out, 5);
+                if (i != RTAX_NETMASK && n < offsetof(struct sockaddr_in, sin_addr) + 4) return bad_decode(out, 6);
+                if (i == RTAX_NETMASK && family != 0 && family != AF_INET) return bad_decode(out, 7);
                 struct sockaddr_in sa; memset(&sa, 0, sizeof(sa)); memcpy(&sa, bytes + offset, n);
                 uint32_t ip = ntohl(sa.sin_addr.s_addr);
                 if (i == RTAX_DST) { out->destination = ip; out->has_destination = 1; }
                 if (i == RTAX_GATEWAY) { out->gateway = ip; out->has_gateway = 1; }
                 if (i == RTAX_NETMASK) { out->mask = ip; out->has_mask = 1; }
-            } else if (i == RTAX_DST || family != AF_LINK) return 0;
+            } else if (i == RTAX_DST || family != AF_LINK) return bad_decode(out, 8);
         }
         if (i == RTAX_IFP) {
-            if (family != AF_LINK || n < offsetof(struct sockaddr_dl, sdl_index) + sizeof(uint16_t)) return 0;
+            if (family != AF_LINK || n < offsetof(struct sockaddr_dl, sdl_index) + sizeof(uint16_t)) return bad_decode(out, 9);
             uint16_t index; memcpy(&index, bytes + offset + offsetof(struct sockaddr_dl, sdl_index), sizeof(index));
-            if (out->index && index && out->index != index) return 0;
+            if (out->index && index && out->index != index) return bad_decode(out, 10);
             if (index) out->index = index;
         }
         offset += span;
     }
-    if (offset != length || !out->has_destination) return 0;
+    if (offset != length || !out->has_destination) return bad_decode(out, 11);
     if (h->rtm_flags & RTF_HOST) {
-        if (out->has_mask && out->mask != UINT32_MAX) return 0;
+        if (out->has_mask && out->mask != UINT32_MAX) return bad_decode(out, 12);
         out->prefix = 32; out->mask = UINT32_MAX;
     } else {
         unsigned bits = 0; uint32_t mask = out->mask;
         while (mask & 0x80000000u) { ++bits; mask <<= 1; }
-        if (mask) return 0;
+        if (mask) return bad_decode(out, 13);
         out->prefix = bits;
     }
-    return (out->destination & out->mask) == out->destination;
+    if ((out->destination & out->mask) != out->destination) return bad_decode(out, 14);
+    return 1;
 }
 static int same_key(const struct er_message *m, er_spec s) {
     return m->has_destination && m->destination == s.destination && m->prefix == s.prefix;
@@ -118,13 +138,14 @@ static void poison(er_context *c) { c->poisoned = 1; for (int i = 0; i < c->used
  * fields. Readback alone never reactivates a revoked receipt. Interface changes are
  * independently detected by the shared observer; they confer no new delete rights. */
 static int event(er_context *c, const unsigned char *b, size_t n) {
-    if (n < 4) { poison(c); return 0; }
+    if (n < 4) { diagnose(c, ER_REASON_EVENT, 0, 0); poison(c); return 0; }
     uint16_t length; memcpy(&length, b, 2);
-    if (length != n || b[2] != RTM_VERSION) { poison(c); return 0; }
+    if (length != n || b[2] != RTM_VERSION) { diagnose(c, ER_REASON_EVENT, 0, 0); poison(c); return 0; }
+    c->diagnostic.reply_type = b[3];
     switch (b[3]) {
     case RTM_ADD: case RTM_DELETE: case RTM_CHANGE: case RTM_LOCK: case RTM_REDIRECT: case RTM_RESOLVE: {
         struct er_message m;
-        if (!decode(b, n, &m)) { poison(c); return 0; }
+        if (!decode(b, n, &m)) { diagnose(c, ER_REASON_EVENT, m.decode_failure, 0); poison(c); return 0; }
         if (m.header.rtm_errno) return 1;
         for (int i = 0; i < c->used; ++i) if (same_key(&m, c->owned[i].spec)) c->owned[i].live = 0;
         return 1;
@@ -132,7 +153,7 @@ static int event(er_context *c, const unsigned char *b, size_t n) {
     case RTM_GET: case RTM_MISS: case RTM_LOSING:
     case RTM_IFINFO: case RTM_NEWADDR: case RTM_DELADDR: case RTM_NEWMADDR: case RTM_DELMADDR:
         return 1;
-    default: poison(c); return 0;
+    default: diagnose(c, ER_REASON_EVENT, 0, 0); poison(c); return 0;
     }
 }
 /* One datagram; reported truncation/overflow/unknown format poisons all receipts. */
@@ -142,18 +163,22 @@ static int receive(er_context *c, unsigned char *bytes, size_t *length) {
     ssize_t n = recvmsg(c->fd, &msg, MSG_DONTWAIT);
     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return 0;
     if (n < 0 && errno == EINTR) return 0;
-    if (n <= 0 || n > ER_BYTES || (msg.msg_flags & MSG_TRUNC)) { poison(c); return -1; }
+    if (n <= 0 || n > ER_BYTES || (msg.msg_flags & MSG_TRUNC)) {
+        diagnose(c, (msg.msg_flags & MSG_TRUNC) ? ER_REASON_TRUNCATED : ER_REASON_RECEIVE, 0, n < 0 ? errno : 0);
+        poison(c); return -1;
+    }
     *length = (size_t)n; return 1;
 }
 int32_t er_drain(er_context *c) {
-    if (!c || c->poisoned) return 0;
+    if (!c) return 0;
+    if (c->poisoned) { diagnose(c, ER_REASON_POISONED, 0, 0); return 0; }
     unsigned char bytes[ER_BYTES]; size_t n;
     for (unsigned i = 0; i < ER_EVENTS; ++i) {
         int r = receive(c, bytes, &n);
         if (r == 0) return 1;
         if (r < 0 || !event(c, bytes, n)) return 0;
     }
-    poison(c); return 0;
+    diagnose(c, ER_REASON_EVENT_LIMIT, 0, 0); poison(c); return 0;
 }
 static int append(unsigned char *bytes, size_t *length, const void *sa, size_t n) {
     if (*length + aligned(n) > 512) return 0;
@@ -184,50 +209,65 @@ static int request(er_context *c, int type, er_spec s, unsigned char *bytes, siz
 /* Refusal requires the matching kernel response. A write syscall, log line or
  * exit code alone never creates a receipt. No resend follows any failure. */
 static int exchange(er_context *c, int type, er_spec s, struct er_message *reply) {
+    // This guard is in the lowest send path as well as in the public API.
+    // A root caller cannot turn a query-only context into a write context.
+    if (!c->writable && type != RTM_GET) { diagnose(c, ER_REASON_READ_ONLY, 0, 0); return 1; }
     if (!er_drain(c)) return 2;
     if (type == RTM_DELETE) {
         int owned = 0;
         for (int i = 0; i < c->used; ++i) if (c->owned[i].live &&
             c->owned[i].spec.destination == s.destination && c->owned[i].spec.prefix == s.prefix) owned = 1;
-        if (!owned) return 1; /* drain above may have revoked the checked receipt */
+        if (!owned) { diagnose(c, ER_REASON_OWNERSHIP, 0, 0); return 1; } /* drain above may have revoked the checked receipt */
     }
     unsigned char message[512]; size_t length;
-    if (!request(c, type, s, message, &length)) return 1;
+    if (!request(c, type, s, message, &length)) { diagnose(c, ER_REASON_REQUEST, 0, 0); return 1; }
     const int sequence = c->sequence;
     double start = er_continuous_seconds(), deadline = start + 2;
-    if (start < 0) { poison(c); return 2; }
+    if (start < 0) { diagnose(c, ER_REASON_CLOCK, 0, 0); poison(c); return 2; }
+    if (type == RTM_ADD || type == RTM_DELETE) {
+        if (c->mutation_attempts == UINT32_MAX) { diagnose(c, ER_REASON_REQUEST, 0, 0); return 1; }
+        ++c->mutation_attempts; // BEFORE syscall, even a negative return can be ambiguous.
+    }
     ssize_t sent = write(c->fd, message, length);
+    const int send_errno = sent < 0 ? errno : 0;
+    c->diagnostic.system_errno = send_errno;
     /* Darwin may return a kernel errno AND queue its reply. Still require the reply;
        an unconfirmed write remains unknown, never "not applied". */
-    if (sent != (ssize_t)length && sent >= 0) { poison(c); return 2; }
+    if (sent != (ssize_t)length && sent >= 0) { diagnose(c, ER_REASON_SEND, 0, 0); poison(c); return 2; }
     unsigned char bytes[ER_BYTES]; size_t n;
     for (unsigned count = 0; count < ER_EVENTS; ++count) {
         double now = er_continuous_seconds();
-        if (now < start || now >= deadline) { poison(c); return 2; }
+        if (now < start || now >= deadline) { diagnose(c, now < start ? ER_REASON_CLOCK : ER_REASON_TIMEOUT, 0, send_errno); poison(c); return 2; }
         struct pollfd p = {c->fd, POLLIN, 0};
         int polled = poll(&p, 1, (int)((deadline - now) * 1000) + 1);
         if (polled < 0 && errno == EINTR) continue;
-        if (polled <= 0 || (p.revents & (POLLERR | POLLHUP | POLLNVAL))) { poison(c); return 2; }
+        if (polled <= 0 || (p.revents & (POLLERR | POLLHUP | POLLNVAL))) {
+            diagnose(c, polled == 0 ? ER_REASON_TIMEOUT : ER_REASON_POLL, 0, polled < 0 ? errno : send_errno);
+            poison(c); return 2;
+        }
         int got = receive(c, bytes, &n);
         if (got < 0) return 2;
         if (!got) continue;
         if (n >= sizeof(struct rt_msghdr)) {
             struct rt_msghdr h; memcpy(&h, bytes, sizeof(h));
             if (h.rtm_pid == c->pid && h.rtm_seq == sequence) {
-                if (h.rtm_type != type || !decode(bytes, n, reply)) { poison(c); return 2; }
+                c->diagnostic.reply_type = h.rtm_type; c->diagnostic.reply_errno = h.rtm_errno;
+                if (h.rtm_type != type) { diagnose(c, ER_REASON_REPLY_TYPE, 0, send_errno); poison(c); return 2; }
+                if (!decode(bytes, n, reply)) { diagnose(c, ER_REASON_DECODE, reply->decode_failure, send_errno); poison(c); return 2; }
                 int valid = type == RTM_GET ?
                     ((s.destination & reply->mask) == reply->destination) :
                     (same_key(reply, s) && reply->has_gateway && reply->gateway == s.gateway && reply->index == s.interface_index);
-                if (!valid) { poison(c); return 2; }
-                return h.rtm_errno == 0 ? 0 : 1;
+                if (!valid) { diagnose(c, ER_REASON_REPLY_KEY, 0, send_errno); poison(c); return 2; }
+                if (h.rtm_errno) { diagnose(c, ER_REASON_KERNEL, 0, send_errno); return 1; }
+                return 0;
             }
         }
         if (!event(c, bytes, n)) return 2;
     }
-    poison(c); return 2;
+    diagnose(c, ER_REASON_EVENT_LIMIT, 0, send_errno); poison(c); return 2;
 }
-er_context *er_open(void) {
-    if (getuid() != 0 || geteuid() != 0) return NULL;
+static er_context *open_context(int writable) {
+    if (writable && (getuid() != 0 || geteuid() != 0)) return NULL;
     int fd = socket(PF_ROUTE, SOCK_RAW, AF_INET);
     if (fd < 0) return NULL;
     int buffer = 262144;
@@ -235,39 +275,71 @@ er_context *er_open(void) {
         setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &buffer, sizeof(buffer)) < 0) { close(fd); return NULL; }
     er_context *c = calloc(1, sizeof(*c));
     if (!c) { close(fd); return NULL; }
-    c->fd = fd; c->pid = getpid(); return c;
+    c->fd = fd; c->pid = getpid(); c->writable = writable; return c;
 }
+er_context *er_open(void) { return open_context(1); }
+er_context *er_open_query(void) { return open_context(0); }
 void er_close(er_context *c) { if (c) { close(c->fd); memset(c, 0, sizeof(*c)); free(c); } }
 int32_t er_owns(er_context *c, uint64_t token) {
     return c && !c->poisoned && token > 0 && token <= (uint64_t)c->used && c->owned[token - 1].live;
 }
-er_result er_add(er_context *c, er_spec s) {
-    if (!c || !spec_valid(s) || c->used >= ER_LIMIT || c->poisoned) return result(1, 0);
-    for (int i = 0; i < c->used; ++i) if (c->owned[i].spec.destination == s.destination && c->owned[i].spec.prefix == s.prefix) return result(1, 0);
+static int preflight(er_context *c, er_spec s) {
     struct er_message m;
+    begin_stage(c, ER_STAGE_TARGET_GET);
     int r = exchange(c, RTM_GET, s, &m);
-    if (r || m.index != s.tunnel_index || m.prefix >= s.prefix || !(m.header.rtm_flags & RTF_UP) ||
-        (m.header.rtm_flags & (RTF_REJECT | RTF_BLACKHOLE | RTF_IFSCOPE))) return result(r == 2 ? 2 : 1, 0);
+    if (r) return r;
+    if (m.index != s.tunnel_index || m.prefix >= s.prefix || !(m.header.rtm_flags & RTF_UP) ||
+        (m.header.rtm_flags & (RTF_REJECT | RTF_BLACKHOLE | RTF_IFSCOPE))) {
+        diagnose(c, ER_REASON_TARGET_PATH, 0, 0); return 1;
+    }
     er_spec gateway = s; gateway.destination = s.gateway;
+    begin_stage(c, ER_STAGE_GATEWAY_GET);
     r = exchange(c, RTM_GET, gateway, &m);
-    if (r || m.index != s.interface_index || !(m.header.rtm_flags & RTF_UP) ||
-        (m.header.rtm_flags & (RTF_REJECT | RTF_BLACKHOLE))) return result(r == 2 ? 2 : 1, 0);
+    if (r) return r;
+    if (m.index != s.interface_index || !(m.header.rtm_flags & RTF_UP) ||
+        (m.header.rtm_flags & (RTF_REJECT | RTF_BLACKHOLE))) {
+        diagnose(c, ER_REASON_GATEWAY_PATH, 0, 0); return 1;
+    }
+    return 0;
+}
+er_result er_probe(er_context *c, er_spec s) {
+    if (!c) return result(1, 0);
+    if (!spec_valid(s)) { diagnose(c, ER_REASON_INVALID, 0, 0); return result(1, 0); }
+    // A successful probe creates no receipt or later permission to add/delete.
+    return result(preflight(c, s), 0);
+}
+er_result er_add(er_context *c, er_spec s) {
+    if (!c) return result(1, 0);
+    if (!c->writable) { diagnose(c, ER_REASON_READ_ONLY, 0, 0); return result(3, 0); }
+    if (!spec_valid(s) || c->used >= ER_LIMIT || c->poisoned) return result(1, 0);
+    for (int i = 0; i < c->used; ++i) if (c->owned[i].spec.destination == s.destination && c->owned[i].spec.prefix == s.prefix) return result(1, 0);
+    // A failed GET is uncertain observation, NOT an uncertain ADD.
+    if (preflight(c, s)) return result(3, 0);
+    struct er_message m;
+    const uint32_t before = c->mutation_attempts;
+    begin_stage(c, ER_STAGE_ADD);
     /* Occupy the slot BEFORE ADD so any interleaved same-key event invalidates it. */
     int slot = c->used++; c->owned[slot] = (struct er_owned){s, 1};
-    r = exchange(c, RTM_ADD, s, &m);
+    int r = exchange(c, RTM_ADD, s, &m);
     if (r || !c->owned[slot].live || !matches(&m, s)) {
+        if (!r) diagnose(c, ER_REASON_OWNERSHIP, 0, 0);
         c->owned[slot].live = 0;
+        if (c->mutation_attempts == before) return result(3, 0);
         return result(r == 1 ? 1 : 2, 0);
     }
     return result(0, (uint64_t)slot + 1);
 }
 er_result er_remove(er_context *c, uint64_t token) {
+    if (!c) return result(1, 0);
+    if (!c->writable) { diagnose(c, ER_REASON_READ_ONLY, 0, 0); return result(1, 0); }
+    begin_stage(c, ER_STAGE_REMOVE_GET);
     if (!er_drain(c) || !er_owns(c, token)) return result(1, 0);
     er_spec s = c->owned[token - 1].spec; struct er_message m;
     int r = exchange(c, RTM_GET, s, &m);
     if (r || !matches(&m, s) || !er_drain(c) || !er_owns(c, token)) return result(r == 2 ? 2 : 1, 0);
     /* No BSD CAS is available: the foreground trial requires a cooperative,
        controlled environment. A concurrent privileged replacement can still race. */
+    begin_stage(c, ER_STAGE_DELETE);
     r = exchange(c, RTM_DELETE, s, &m);
     if (r == 0 && !c->owned[token - 1].live) r = 2;
     c->owned[token - 1].live = 0; /* No retry or second delete with this receipt. */
@@ -277,6 +349,9 @@ er_result er_remove(er_context *c, uint64_t token) {
 /* No routing socket is ever opened on the offline-test platform. */
 struct er_context { int unused; };
 er_context *er_open(void) { return NULL; }
+er_context *er_open_query(void) { return NULL; }
+er_result er_probe(er_context *c, er_spec s) { (void)c; (void)s; return (er_result){1, 0}; }
+er_diagnostic er_get_diagnostic(const er_context *c) { (void)c; er_diagnostic d = {0}; d.reason = ER_REASON_INVALID; return d; }
 void er_close(er_context *c) { (void)c; }
 int32_t er_drain(er_context *c) { (void)c; return 0; }
 int32_t er_owns(er_context *c, uint64_t token) { (void)c; (void)token; return 0; }

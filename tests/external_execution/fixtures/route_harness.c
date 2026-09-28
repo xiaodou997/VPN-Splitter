@@ -10,12 +10,14 @@
 static struct { unsigned char bytes[512]; size_t length; int truncated; } messages[32];
 static int head, tail, add_calls, delete_calls, fail_add, suppress_reply, wrong_seq, wrong_type, wrong_index;
 static int inject_after_get, root = 1, sockets, closes;
+static int get_calls, fault_get_index, get_fault, inject_before_add, suppress_delete;
 static uint64_t clock_ns;
 static er_spec table[8]; static int table_count;
 static er_spec specimen(void) { return (er_spec){0xc6336404u, 0xc0000201u, 2, 9, 32}; }
 static void reset(void) {
     head = tail = add_calls = delete_calls = fail_add = suppress_reply = wrong_seq = wrong_type = wrong_index = 0;
     inject_after_get = table_count = sockets = closes = 0; root = 1; clock_ns = 1000000000ull;
+    get_calls = fault_get_index = get_fault = inject_before_add = suppress_delete = 0;
 }
 int mach_timebase_info(mach_timebase_info_data_t *info) { info->numer = info->denom = 1; return 0; }
 uint64_t mach_continuous_time(void) { clock_ns += 1000; return clock_ns; }
@@ -48,6 +50,12 @@ ssize_t fake_write(int fd, const void *bytes, size_t n) {
         req.destination = ntohl(dst.sin_addr.s_addr);
     } else { assert(decode(bytes, n, &req)); }
     if (h.rtm_type == RTM_GET) {
+        ++get_calls;
+        int fault = get_calls == fault_get_index ? get_fault : 0;
+        if (fault == 1 || fault == 8) {
+            if (fault == 8) { errno = ENETDOWN; return -1; }
+            return (ssize_t)n; // query timeout, not a mutation
+        }
         er_spec s = specimen(); int found = 0;
         for (int i = 0; i < table_count; ++i) {
             if ((req.destination & prefix_mask(table[i].prefix)) == table[i].destination) { s = table[i]; found = 1; break; }
@@ -58,7 +66,16 @@ ssize_t fake_write(int fd, const void *bytes, size_t n) {
         } else if (!found) {
             s.destination = req.destination & 0x80000000u; s.prefix = 1; s.interface_index = 9; flags = RTF_UP | RTF_GATEWAY;
         }
-        enqueue(s, RTM_GET, h.rtm_seq, h.rtm_pid, 0, flags);
+        if (fault == 9) s.interface_index = 4;
+        enqueue(s, fault == 6 ? RTM_ADD : RTM_GET, h.rtm_seq + (fault == 5), h.rtm_pid, fault == 4 ? EACCES : 0, flags);
+        if (fault == 2) messages[tail - 1].bytes[2] = 99;
+        if (fault == 3) {
+            size_t ifp = sizeof(struct rt_msghdr) + 3 * sizeof(struct sockaddr_in);
+            messages[tail - 1].bytes[ifp + 1] = AF_INET;
+        }
+        if (fault == 7) messages[tail - 1].truncated = 1;
+        if (inject_before_add && get_calls == 2) enqueue(s, 99, 0, 777, 0, flags);
+        if (fault == 4) { errno = EACCES; return -1; }
         if (found && inject_after_get) {
             inject_after_get = 0; enqueue(s, RTM_CHANGE, 0, 777, 0, -1);
         }
@@ -79,7 +96,8 @@ ssize_t fake_write(int fd, const void *bytes, size_t n) {
     for (int i = 0; i < table_count; ++i) if (table[i].destination == s.destination && table[i].prefix == s.prefix) {
         table[i] = table[--table_count]; break;
     }
-    enqueue(s, RTM_DELETE, h.rtm_seq, h.rtm_pid, 0, -1); return (ssize_t)n;
+    if (!suppress_delete) enqueue(s, RTM_DELETE, h.rtm_seq, h.rtm_pid, 0, -1);
+    return (ssize_t)n;
 }
 ssize_t fake_recvmsg(int fd, struct msghdr *msg, int flags) {
     assert(fd == 20 && flags == MSG_DONTWAIT);
@@ -130,6 +148,67 @@ int main(void) {
     reset(); c = er_open(); added = er_add(c, specimen());
     enqueue(specimen(), RTM_CHANGE, 0, 777, EACCES, -1);
     assert(er_drain(c) && er_owns(c, added.token)); assert(er_remove(c, added.token).status == 0); er_close(c); scenarios++;
+    /* Query contexts may open unprivileged, but can NEVER issue mutations. */
+    for (int as_root = 0; as_root <= 1; ++as_root) {
+        reset(); root = as_root; c = er_open_query(); assert(c);
+        er_result probed = er_probe(c, specimen()); er_diagnostic d = er_get_diagnostic(c);
+        assert(probed.status == 0 && probed.token == 0 && get_calls == 2);
+        assert(d.stage == ER_STAGE_GATEWAY_GET && d.reason == ER_REASON_NONE && d.mutation_attempts == 0);
+        assert(c->used == 0 && !er_owns(c, 1) && add_calls == 0 && delete_calls == 0);
+        assert(er_add(c, specimen()).status == 3 && er_remove(c, 1).status == 1);
+        struct er_message reply;
+        assert(exchange(c, RTM_ADD, specimen(), &reply) == 1);
+        assert(exchange(c, RTM_DELETE, specimen(), &reply) == 1);
+        assert(add_calls == 0 && delete_calls == 0 && er_get_diagnostic(c).mutation_attempts == 0);
+        er_close(c); scenarios++;
+    }
+    /* Identical preflight failures via add and GET-only probe; never return a receipt. */
+    const int reasons[] = {0, ER_REASON_TIMEOUT, ER_REASON_DECODE, ER_REASON_DECODE,
+        ER_REASON_KERNEL, ER_REASON_TIMEOUT, ER_REASON_REPLY_TYPE, ER_REASON_TRUNCATED, ER_REASON_TIMEOUT};
+    for (int fault = 1; fault <= 8; ++fault) {
+        for (int query = 1; query <= 2; ++query) {
+            for (int probe_only = 0; probe_only <= 1; ++probe_only) {
+                reset(); c = probe_only ? er_open_query() : er_open();
+                get_fault = fault; fault_get_index = query;
+                er_result r = probe_only ? er_probe(c, specimen()) : er_add(c, specimen());
+                er_diagnostic d = er_get_diagnostic(c);
+                assert(r.status != 0 && (!probe_only ? r.status == 3 : 1) && r.token == 0);
+                assert(d.stage == (query == 1 ? ER_STAGE_TARGET_GET : ER_STAGE_GATEWAY_GET));
+                assert(d.reason == reasons[fault] && d.mutation_attempts == 0);
+                if (fault == 2 || fault == 3) assert(d.decode_field > 0);
+                if (fault == 4) assert(d.system_errno == EACCES && d.reply_errno == EACCES);
+                if (fault == 8) assert(d.system_errno == ENETDOWN);
+                assert(get_calls == query && add_calls == 0 && delete_calls == 0 && table_count == 0);
+                er_drain(c); er_remove(c, 1); // cleanup must not erase the original cause
+                er_diagnostic after = er_get_diagnostic(c);
+                assert(after.stage == d.stage && after.reason == d.reason && after.decode_field == d.decode_field);
+                er_close(c);
+            }
+        }
+        scenarios++;
+    }
+    reset(); c = er_open(); get_fault = 9; fault_get_index = 1;
+    assert(er_add(c, specimen()).status == 3 && er_get_diagnostic(c).reason == ER_REASON_TARGET_PATH);
+    assert(add_calls == 0); er_close(c); scenarios++;
+    reset(); c = er_open(); get_fault = 9; fault_get_index = 2;
+    assert(er_add(c, specimen()).status == 3 && er_get_diagnostic(c).reason == ER_REASON_GATEWAY_PATH);
+    assert(add_calls == 0); er_close(c); scenarios++;
+    reset(); c = er_open(); inject_before_add = 1;
+    assert(er_add(c, specimen()).status == 3);
+    assert(er_get_diagnostic(c).stage == ER_STAGE_ADD && er_get_diagnostic(c).mutation_attempts == 0);
+    assert(add_calls == 0); er_close(c); scenarios++;
+    reset(); c = er_open(); suppress_reply = 1;
+    assert(er_add(c, specimen()).status == 2);
+    assert(er_get_diagnostic(c).stage == ER_STAGE_ADD && er_get_diagnostic(c).mutation_attempts == 1);
+    assert(add_calls == 1 && table_count == 1 && delete_calls == 0); er_close(c); scenarios++;
+    reset(); c = er_open(); fail_add = 1;
+    assert(er_add(c, specimen()).status == 1);
+    assert(er_get_diagnostic(c).reply_errno == EEXIST && er_get_diagnostic(c).mutation_attempts == 1);
+    assert(add_calls == 1 && table_count == 0); er_close(c); scenarios++;
+    reset(); c = er_open(); added = er_add(c, specimen()); suppress_delete = 1;
+    assert(er_remove(c, added.token).status == 2);
+    assert(er_get_diagnostic(c).stage == ER_STAGE_DELETE && er_get_diagnostic(c).mutation_attempts == 2);
+    assert(er_remove(c, added.token).status == 1 && delete_calls == 1); er_close(c); scenarios++;
     printf("routing-socket-adapter=PASS scenarios=%d source=ACTUAL darwin_kernel_io=TEST_DOUBLES network=NOT_APPLIED\n", scenarios);
     return 0;
 }

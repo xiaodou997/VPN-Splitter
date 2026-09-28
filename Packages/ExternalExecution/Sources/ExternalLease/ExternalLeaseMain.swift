@@ -24,7 +24,7 @@ struct ExternalLeaseMain {
     private static func run(_ arguments: [String]) -> Int32 {
         guard let command = arguments.first else { usage(); return 0 }
         if command == "--help" { usage(); return 0 }
-        guard ["inspect", "apply", "audit", "clear-absent-marker"].contains(command), arguments.count <= 9,
+        guard ["inspect", "probe", "apply", "audit", "clear-absent-marker"].contains(command), arguments.count <= 9,
               arguments.allSatisfy({ $0.utf8.count <= 64 }) else { usage(); return 64 }
         do {
             if command == "audit" || command == "clear-absent-marker" {
@@ -56,6 +56,24 @@ struct ExternalLeaseMain {
             for proposal in plan.preview.proposals {
                 print("\(proposal.destination) → \(proposal.gateway) / \(proposal.interface) · \(proposal.disposition.rawValue)")
             }
+            if command == "probe" {
+                // No journal, consent flow, ADD, DELETE or receipt creation on this path.
+                // Query-only remains enforced in C even for an administrator caller.
+                let driver = try NativeExternalRouteDriver(tunnel: plan.preview.topology.tunnelInterface, queryOnly: true)
+                guard !plan.additions.isEmpty else {
+                    print("native_route_probe=NOT_NEEDED; existing_routes=NOT_OWNED")
+                    print("network_settings=NOT_APPLIED"); return 0
+                }
+                for (index, route) in plan.additions.enumerated() {
+                    let accepted = driver.probe(route)
+                    print("probe_index=\(index + 1) " + driver.diagnosticSummary)
+                    if !accepted {
+                        print("native_route_probe=FAILED; network_settings=NOT_APPLIED"); return 2
+                    }
+                }
+                print("native_route_probe=PASS; traffic_paths=NOT_VERIFIED; network_settings=NOT_APPLIED")
+                return 0
+            }
             guard command == "apply" else { print("network_settings=NOT_APPLIED"); return 0 }
             // Lock/marker and native socket are owned by this process; no IPC caller can
             // provide a plan, receipt, gateway or interface on the root execution path.
@@ -78,6 +96,7 @@ struct ExternalLeaseMain {
                 }
             }
             session.stop()
+            print(driver.diagnosticSummary)
             print("state=\(session.state.rawValue) owned_receipts_remaining=\(session.ownedCount) snapshot_comparison=\(session.postObservation.rawValue)")
             print("traffic_paths=NOT_VERIFIED; no_system_restore_guarantee=true")
             if let failure = session.failure { print("failure=\(failure.rawValue)") }
@@ -88,7 +107,7 @@ struct ExternalLeaseMain {
             let code = diagnostic?.code.rawValue ?? (error as? ExternalLeaseFailure)?.rawValue ?? (error as? ExternalError)?.rawValue ?? "unavailable"
             print("External operation stopped: \(code). No automatic retry, privilege escalation, route flush or DNS fallback.")
             // Do not attach this claim to apply/audit failures after possible writes.
-            if command == "inspect" { print("network_settings=NOT_APPLIED") }
+            if command == "inspect" || command == "probe" { print("network_settings=NOT_APPLIED") }
             return 2
         }
     }
@@ -96,6 +115,7 @@ struct ExternalLeaseMain {
     private static func usage() {
         print("""
         VPNExternalLease inspect <IPv4/CIDR> ...  只读检查，不申请权限
+        VPNExternalLease probe <IPv4/CIDR> ...    原生 GET 预检；不写路由、不碰恢复标记、无需 sudo
         VPNExternalLease apply <IPv4/CIDR> ...    需要本机管理员启动及终端 APPLY 确认；最多 8 项 /24–/32、60 秒
         VPNExternalLease audit                   管理员只读核查崩溃遗留标记；不删除路由
         VPNExternalLease clear-absent-marker     仅在全部候选及更具体路由均不存在时删除本工具标记；不改网络
