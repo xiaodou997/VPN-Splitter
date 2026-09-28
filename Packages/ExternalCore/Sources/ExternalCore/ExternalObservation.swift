@@ -52,11 +52,30 @@ public struct ExternalRoute: Hashable, Sendable {
     public let gateway: String
     public let interface: String
     public let flags: String
-    /// netstat's literal Expire "!" is retained as evidence, not a usable route.
+    /// Records netstat's literal Expire "!", NOT universal route invalidity.
+    /// Darwin also sets this metric on connected cloning parents. Keep the legacy
+    /// property name and conservative general eligibility; topology separately
+    /// validates link evidence against the current physical service and subnet.
     /// Numeric countdowns remain excluded from snapshot identity.
     public let isExpired: Bool
     public var scoped: Bool { flags.contains("I") }
     public var usable: Bool { !isExpired && flags.contains("U") && !flags.contains("R") && !flags.contains("B") }
+    /// Only local-link evidence, never default/tunnel selection, ownership or write
+    /// authority. The planner must also match the observed interface, exact LAN
+    /// prefix, current local address and an on-link, non-local unicast router.
+    internal var isConnectedLANEvidence: Bool {
+        if usable { return !flags.contains("G") }
+        // XNU arp_rtrequest initializes RTF_CLONING/AF_LINK parent metrics to the
+        // current time. A printed "!" therefore does not invalidate that parent.
+        // Do not extend this exception to host neighbors, IP gateways, unknown
+        // flags, default routes, or rejected/blackholed/cloned-child records.
+        guard isExpired, flags.contains("U"), flags.contains("C"),
+              flags.allSatisfy({ "UCSIdig".contains($0) }),
+              (1...30).contains(destination.prefixLength),
+              gateway.hasPrefix("link#"), let index = UInt32(gateway.dropFirst(5)),
+              index > 0, gateway == "link#" + String(index) else { return false }
+        return true
+    }
     public init(destination: IPv4CIDR, gateway: String, interface: String, flags: String, isExpired: Bool = false) {
         self.destination = destination; self.gateway = gateway; self.interface = interface; self.flags = flags
         self.isExpired = isExpired

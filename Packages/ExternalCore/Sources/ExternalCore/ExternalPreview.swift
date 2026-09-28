@@ -53,10 +53,11 @@ public enum ExternalPlanner {
                       UInt64(path.gateway.rawValue) != UInt64(network.networkAddress.rawValue) + network.addressCount - 1 &&
                       interface.addresses.contains(where: network.contains)
                   }) else { return false }
-            // Connected LAN route must be present, without another gateway. Link-layer
-            // neighbors do not alone prove that a gateway routes Internet traffic.
+            // Connected LAN evidence is distinct from general route eligibility:
+            // Darwin cloning parents may show Expire "!". Still require the current
+            // physical interface and exact observed LAN, never only a neighbor row.
             return observation.routes.contains { route in
-                route.usable && !route.flags.contains("G") && route.interface == path.interface &&
+                route.isConnectedLANEvidence && route.interface == path.interface &&
                 path.networks.contains(route.destination) && route.destination.contains(path.gateway)
             }
         }
