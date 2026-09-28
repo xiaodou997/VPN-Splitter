@@ -142,6 +142,40 @@ static int matches(const struct er_message *m, er_spec s) {
     return same_key(m, s) && m->has_gateway && m->gateway == s.gateway && m->index == s.interface_index &&
         (m->header.rtm_flags & required) == required && !(m->header.rtm_flags & forbidden);
 }
+/* Protocol-0 sockets also deliver IPv6 notifications. Only a fully framed,
+ * explicitly IPv6 event can be unrelated to our IPv4 keys. This is classification,
+ * not an IPv6 route plan/receipt. Unknown families and malformed frames still stop.
+ * Matching replies never use this path: exchange() must decode them as IPv4. */
+static int separate_ipv6_event(const unsigned char *bytes, size_t length) {
+    struct rt_msghdr h;
+    if (length < sizeof(h)) return 0;
+    memcpy(&h, bytes, sizeof(h));
+    if (h.rtm_msglen != length || h.rtm_version != RTM_VERSION || h.rtm_addrs < 0 ||
+        ((unsigned)h.rtm_addrs >> RTAX_MAX) != 0 || !(h.rtm_addrs & RTA_DST)) return 0;
+    size_t offset = sizeof(h);
+    for (int i = 0; i < RTAX_MAX; ++i) {
+        if (!(h.rtm_addrs & (1 << i))) continue;
+        if (offset + 2 > length) return 0;
+        size_t n = bytes[offset], span = aligned(n);
+        if (span > length - offset) return 0;
+        unsigned family = bytes[offset + 1];
+        if (i == RTAX_NETMASK || i == RTAX_GENMASK) {
+            if (n > sizeof(struct sockaddr_in6)) return 0;
+        } else if (i == RTAX_DST) {
+            if (n != sizeof(struct sockaddr_in6) || family != AF_INET6) return 0;
+        } else if (family == AF_LINK) {
+            const size_t data = offsetof(struct sockaddr_dl, sdl_data);
+            if (n < data ||
+                (size_t)bytes[offset + offsetof(struct sockaddr_dl, sdl_nlen)] +
+                bytes[offset + offsetof(struct sockaddr_dl, sdl_alen)] +
+                bytes[offset + offsetof(struct sockaddr_dl, sdl_slen)] > n - data) return 0;
+        } else if (family != AF_INET6 || n != sizeof(struct sockaddr_in6) || i == RTAX_IFP) {
+            return 0;
+        }
+        offset += span;
+    }
+    return offset == length;
+}
 static void poison(er_context *c) { c->poisoned = 1; for (int i = 0; i < c->used; ++i) c->owned[i].live = 0; }
 /* External writes to the same key revoke the receipt even if they restore identical
  * fields. Readback alone never reactivates a revoked receipt. Interface changes are
@@ -154,7 +188,10 @@ static int event(er_context *c, const unsigned char *b, size_t n) {
     switch (b[3]) {
     case RTM_ADD: case RTM_DELETE: case RTM_CHANGE: case RTM_LOCK: case RTM_REDIRECT: case RTM_RESOLVE: {
         struct er_message m;
-        if (!decode(b, n, &m)) { diagnose(c, ER_REASON_EVENT, m.decode_failure, 0); poison(c); return 0; }
+        if (!decode(b, n, &m)) {
+            if (separate_ipv6_event(b, n)) return 1;
+            diagnose(c, ER_REASON_EVENT, m.decode_failure, 0); poison(c); return 0;
+        }
         if (m.header.rtm_errno) return 1;
         for (int i = 0; i < c->used; ++i) if (same_key(&m, c->owned[i].spec)) c->owned[i].live = 0;
         return 1;
@@ -277,7 +314,12 @@ static int exchange(er_context *c, int type, er_spec s, struct er_message *reply
 }
 static er_context *open_context(int writable) {
     if (writable && (getuid() != 0 || geteuid() != 0)) return NULL;
-    int fd = socket(PF_ROUTE, SOCK_RAW, AF_INET);
+    /* XNU can broadcast the echo of a full-length IPv4 ADD with protocol 0,
+     * while GET/DELETE reports carry AF_INET. An AF_INET subscription silently
+     * misses that ADD echo even after the kernel has installed the route.
+     * Subscribe without a family filter; retain strict IPv4 reply matching and
+     * classify unrelated IPv6 events separately. Do not disable SO_USELOOPBACK. */
+    int fd = socket(PF_ROUTE, SOCK_RAW, 0);
     if (fd < 0) return NULL;
     int buffer = 262144;
     if (fcntl(fd, F_SETFD, FD_CLOEXEC) < 0 || fcntl(fd, F_SETFL, O_NONBLOCK) < 0 ||

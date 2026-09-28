@@ -12,6 +12,10 @@ static int head, tail, add_calls, delete_calls, fail_add, suppress_reply, wrong_
 static int inject_after_get, root = 1, sockets, closes;
 static int get_calls, fault_get_index, get_fault, inject_before_add, suppress_delete;
 static int radix_replies;
+/* Independent dispatch metadata: not encoded in rt_msghdr or the IP payload.
+ * A protocol-0 ADD echo must be filtered from an AF_INET-only subscriber. */
+static int socket_protocol, filtered_messages;
+static void (*notification_hook)(int type, int sequence, pid_t pid);
 static uint64_t clock_ns;
 static er_spec table[8]; static int table_count;
 static er_spec specimen(void) { return (er_spec){0xc6336404u, 0xc0000201u, 2, 9, 32}; }
@@ -19,10 +23,11 @@ static void reset(void) {
     head = tail = add_calls = delete_calls = fail_add = suppress_reply = wrong_seq = wrong_type = wrong_index = 0;
     inject_after_get = table_count = sockets = closes = 0; root = 1; clock_ns = 1000000000ull;
     get_calls = fault_get_index = get_fault = inject_before_add = suppress_delete = radix_replies = 0;
+    socket_protocol = -1; filtered_messages = 0; notification_hook = NULL;
 }
 int mach_timebase_info(mach_timebase_info_data_t *info) { info->numer = info->denom = 1; return 0; }
 uint64_t mach_continuous_time(void) { clock_ns += 1000; return clock_ns; }
-int fake_socket(int family, int type, int protocol) { assert(family == PF_ROUTE && type == SOCK_RAW && protocol == AF_INET); sockets++; return 20; }
+int fake_socket(int family, int type, int protocol) { assert(family == PF_ROUTE && type == SOCK_RAW && (protocol == 0 || protocol == AF_INET)); socket_protocol = protocol; sockets++; return 20; }
 int fake_close(int fd) { assert(fd == 20); closes++; return 0; }
 int fake_fcntl(int fd, int command, ...) { assert(fd == 20 && (command == F_SETFD || command == F_SETFL)); return 0; }
 int fake_setsockopt(int fd, int level, int name, const void *value, socklen_t length) {
@@ -75,6 +80,8 @@ static size_t mask_wire(unsigned char bytes[512], er_spec spec, int type, int se
     return offset;
 }
 static void enqueue(er_spec spec, int type, int sequence, pid_t pid, int error, int flags) {
+    int dispatch = type == RTM_GET || type == RTM_DELETE ? AF_INET : 0;
+    if (socket_protocol && socket_protocol != dispatch) { filtered_messages++; return; }
     assert(tail < 32);
     er_context dummy; memset(&dummy, 0, sizeof(dummy)); dummy.pid = pid;
     size_t length;
@@ -95,6 +102,7 @@ ssize_t fake_write(int fd, const void *bytes, size_t n) {
         struct sockaddr_in dst; memcpy(&dst, (const unsigned char *)bytes + sizeof(h), sizeof(dst));
         req.destination = ntohl(dst.sin_addr.s_addr);
     } else { assert(decode(bytes, n, &req)); }
+    if (notification_hook) notification_hook(h.rtm_type, h.rtm_seq, h.rtm_pid);
     if (h.rtm_type == RTM_GET) {
         ++get_calls;
         int fault = get_calls == fault_get_index ? get_fault : 0;

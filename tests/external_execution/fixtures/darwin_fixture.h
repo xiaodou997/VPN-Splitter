@@ -42,6 +42,7 @@ struct rt_msghdr {
 #define RTAX_DST 0
 #define RTAX_GATEWAY 1
 #define RTAX_NETMASK 2
+#define RTAX_GENMASK 3
 #define RTAX_IFP 4
 #define RTA_DST (1 << RTAX_DST)
 #define RTA_GATEWAY (1 << RTAX_GATEWAY)
