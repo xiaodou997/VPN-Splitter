@@ -83,8 +83,12 @@ struct ExternalLeaseMain {
             if let failure = session.failure { print("failure=\(failure.rawValue)") }
             return session.state == .closed && session.failure == nil ? 0 : 2
         } catch {
-            let code = (error as? ExternalLeaseFailure)?.rawValue ?? (error as? ExternalError)?.rawValue ?? "unavailable"
+            let diagnostic = error as? ExternalRouteParseDiagnostic
+            if let diagnostic { print(diagnostic.description) }
+            let code = diagnostic?.code.rawValue ?? (error as? ExternalLeaseFailure)?.rawValue ?? (error as? ExternalError)?.rawValue ?? "unavailable"
             print("External operation stopped: \(code). No automatic retry, privilege escalation, route flush or DNS fallback.")
+            // Do not attach this claim to apply/audit failures after possible writes.
+            if command == "inspect" { print("network_settings=NOT_APPLIED") }
             return 2
         }
     }

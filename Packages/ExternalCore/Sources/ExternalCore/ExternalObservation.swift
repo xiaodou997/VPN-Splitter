@@ -52,10 +52,14 @@ public struct ExternalRoute: Hashable, Sendable {
     public let gateway: String
     public let interface: String
     public let flags: String
+    /// netstat's literal Expire "!" is retained as evidence, not a usable route.
+    /// Numeric countdowns remain excluded from snapshot identity.
+    public let isExpired: Bool
     public var scoped: Bool { flags.contains("I") }
-    public var usable: Bool { flags.contains("U") && !flags.contains("R") && !flags.contains("B") }
-    public init(destination: IPv4CIDR, gateway: String, interface: String, flags: String) {
+    public var usable: Bool { !isExpired && flags.contains("U") && !flags.contains("R") && !flags.contains("B") }
+    public init(destination: IPv4CIDR, gateway: String, interface: String, flags: String, isExpired: Bool = false) {
         self.destination = destination; self.gateway = gateway; self.interface = interface; self.flags = flags
+        self.isExpired = isExpired
     }
 }
 
@@ -100,49 +104,85 @@ public struct ExternalObservation: Sendable, CustomStringConvertible, CustomDebu
 public enum ExternalRouteTable {
     public static let maximumBytes = 2_097_152
     private static let knownFlags = Set("UGHRDMmdCXLS12Wc3BbIiYrg")
+    /// Preserve the original coarse error API for existing pure-core callers.
     public static func parse(_ data: Data) throws -> Set<ExternalRoute> {
-        guard !data.isEmpty, data.count <= maximumBytes else { throw ExternalError.limitExceeded }
-        guard let text = String(data: data, encoding: .utf8),
-              !text.unicodeScalars.contains(where: { $0.value < 32 && $0 != "\n" && $0 != "\t" && $0 != "\r" }) else {
-            throw ExternalError.malformedRoutes
-        }
-        var header: [String]?
-        var internet = false
-        var routes: Set<ExternalRoute> = []
-        var rows = 0
-        for raw in text.split(whereSeparator: \.isNewline) {
-            guard raw.utf8.count <= 1024 else { throw ExternalError.limitExceeded }
-            let fields = raw.split(whereSeparator: \.isWhitespace).map(String.init)
-            if fields.isEmpty || fields == ["Routing", "tables"] { continue }
-            if fields == ["Internet:"] {
-                guard !internet else { throw ExternalError.malformedRoutes }; internet = true; continue
+        do { return try parseDiagnosing(data) }
+        catch let diagnostic as ExternalRouteParseDiagnostic { throw diagnostic.code }
+    }
+
+    /// Same parser, with bounded positional diagnostics for native callers. No row,
+    /// address, interface name, raw token, hash of a token or source Data is retained.
+    public static func parseDiagnosing(_ data: Data) throws -> Set<ExternalRoute> {
+        var line = 0
+        var columns = 0
+        var field = ExternalRouteParseDiagnostic.Field.inputSize
+        do {
+            guard !data.isEmpty, data.count <= maximumBytes else { throw ExternalError.limitExceeded }
+            field = .encoding
+            guard let text = String(data: data, encoding: .utf8) else { throw ExternalError.malformedRoutes }
+            field = .controlCharacter
+            guard !text.unicodeScalars.contains(where: { $0.value < 32 && $0 != "\n" && $0 != "\t" && $0 != "\r" }) else {
+                throw ExternalError.malformedRoutes
             }
-            if fields.first == "Destination" {
-                guard internet, header == nil,
-                      fields == ["Destination", "Gateway", "Flags", "Netif", "Expire"] ||
-                      fields == ["Destination", "Gateway", "Flags", "Refs", "Use", "Netif", "Expire"] else {
-                    throw ExternalError.malformedRoutes
+            var header: [String]?
+            var internet = false
+            var routes: Set<ExternalRoute> = []
+            var rows = 0
+            // Include blank lines so positions refer to the original output (also CRLF).
+            for raw in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+                line += 1; columns = 0; field = .lineSize
+                guard raw.utf8.count <= 1024 else { throw ExternalError.limitExceeded }
+                let fields = raw.split(whereSeparator: \.isWhitespace).map(String.init)
+                columns = fields.count
+                if fields.isEmpty || fields == ["Routing", "tables"] { continue }
+                if fields == ["Internet:"] {
+                    field = .section
+                    guard !internet else { throw ExternalError.malformedRoutes }; internet = true; continue
                 }
-                header = fields; continue
+                if fields.first == "Destination" {
+                    field = .header
+                    guard internet, header == nil,
+                          fields == ["Destination", "Gateway", "Flags", "Netif", "Expire"] ||
+                          fields == ["Destination", "Gateway", "Flags", "Refs", "Use", "Netif", "Expire"] else {
+                        throw ExternalError.malformedRoutes
+                    }
+                    header = fields; continue
+                }
+                field = .columns
+                guard let header, let interfaceIndex = header.firstIndex(of: "Netif"),
+                      fields.count == header.count || fields.count == header.count - 1 else { throw ExternalError.malformedRoutes }
+                rows += 1; field = .rowCount
+                guard rows <= 8192 else { throw ExternalError.limitExceeded }
+                field = .interface
+                guard ExternalObservation.validName(fields[interfaceIndex]) else { throw ExternalError.malformedRoutes }
+                field = .flags
+                guard !fields[2].isEmpty, fields[2].allSatisfy(knownFlags.contains) else { throw ExternalError.malformedRoutes }
+                field = .gateway
+                guard validGateway(fields[1]) else { throw ExternalError.malformedRoutes }
+                if interfaceIndex > 3 {
+                    field = .counters
+                    guard fields[3..<interfaceIndex].allSatisfy(isASCIIDecimal) else { throw ExternalError.malformedRoutes }
+                }
+                let expired = fields.count == header.count && fields.last == "!"
+                if fields.count == header.count {
+                    field = .expiry
+                    // Apple np_rtentry emits "!" when the expiry time is no longer positive.
+                    guard expired || isASCIIDecimal(fields[header.count - 1]) else { throw ExternalError.malformedRoutes }
+                }
+                field = .destination
+                let destination = try numericDestination(fields[0], host: fields[2].contains("H"))
+                routes.insert(.init(destination: destination, gateway: fields[1], interface: fields[interfaceIndex],
+                                    flags: fields[2], isExpired: expired))
             }
-            guard let header, let interfaceIndex = header.firstIndex(of: "Netif"),
-                  fields.count == header.count || fields.count == header.count - 1 else { throw ExternalError.malformedRoutes }
-            rows += 1
-            guard rows <= 8192 else { throw ExternalError.limitExceeded }
-            guard ExternalObservation.validName(fields[interfaceIndex]), !fields[2].isEmpty,
-                  fields[2].allSatisfy(knownFlags.contains),
-                  validGateway(fields[1]) else { throw ExternalError.malformedRoutes }
-            if interfaceIndex > 3 {
-                guard fields[3..<interfaceIndex].allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else { throw ExternalError.malformedRoutes }
-            }
-            if fields.count == header.count {
-                guard fields.last!.allSatisfy(\.isNumber) else { throw ExternalError.malformedRoutes }
-            }
-            let destination = try numericDestination(fields[0], host: fields[2].contains("H"))
-            routes.insert(.init(destination: destination, gateway: fields[1], interface: fields[interfaceIndex], flags: fields[2]))
+            field = .emptyTable; columns = 0
+            guard header != nil, !routes.isEmpty else { throw ExternalError.malformedRoutes }
+            return routes
+        } catch let error as ExternalError {
+            throw ExternalRouteParseDiagnostic(code: error, line: line, field: field, columns: columns)
         }
-        guard header != nil, !routes.isEmpty else { throw ExternalError.malformedRoutes }
-        return routes
+    }
+    private static func isASCIIDecimal(_ text: String) -> Bool {
+        !text.isEmpty && text.utf8.allSatisfy { (48...57).contains($0) }
     }
     private static func validGateway(_ text: String) -> Bool {
         if (try? IPv4Address(text)) != nil { return true }

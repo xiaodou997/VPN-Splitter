@@ -29,7 +29,7 @@ class ExecutionEntryTests(unittest.TestCase):
         p = subprocess.run(['swiftc', '-frontend', '-parse', '-target', 'arm64-apple-macos26.0', *map(str, sources)], text=True, capture_output=True, timeout=30)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         collector = sources[-1].read_text()
-        for token in ['SCDynamicStoreCopyMultiple', 'getifaddrs', 'ExternalRouteTable.parse(readRoutes())']:
+        for token in ['SCDynamicStoreCopyMultiple', 'getifaddrs', 'ExternalRouteTable.parseDiagnosing(readRoutes())']:
             self.assertIn(token, collector)
         for token in ['RTM_ADD', 'RTM_DELETE', 'SecItem', '/sbin/route']:
             self.assertNotIn(token, collector)

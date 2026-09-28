@@ -39,8 +39,12 @@ final class ExternalModel: ObservableObject {
             } catch {
                 guard token == id, !Task.isCancelled else { return }
                 preview = nil
-                let failure = error as? ExternalError ?? .readFailed
-                message = failure.message + "（" + failure.rawValue + "）"
+                if let diagnostic = error as? ExternalRouteParseDiagnostic {
+                    message = diagnostic.message
+                } else {
+                    let failure = error as? ExternalError ?? .readFailed
+                    message = failure.message + "（" + failure.rawValue + "）"
+                }
             }
             guard token == id, observation != nil else { return }
             // A result is a dated observation, never a live status. Clear even a failed

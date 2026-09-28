@@ -23,7 +23,7 @@ public struct ExternalSystemSnapshotReader: Sendable {
             guard let store = SCDynamicStoreCreate(nil, "VPN-Splitter External read-only" as CFString, nil, nil) else { throw ExternalError.readFailed }
             let before = try values(store)
             let interfaces = try nics()
-            let routes = try ExternalRouteTable.parse(readRoutes())
+            let routes = try ExternalRouteTable.parseDiagnosing(readRoutes())
             let paths = try physicalPaths(before, interfaces: interfaces)
             var dns: Set<IPv4Address> = []
             for (key, value) in before where key.hasSuffix("/DNS") {
@@ -35,9 +35,9 @@ public struct ExternalSystemSnapshotReader: Sendable {
                     }
                 }
             }
-            // Compare semantic route rows, excluding counters/expiry timers. No automatic
+            // Compare semantic rows, excluding countdowns but retaining expired status. No automatic
             // retry. This is a bounded observation window, not a kernel atomic snapshot.
-            guard routes == (try ExternalRouteTable.parse(readRoutes())), interfaces == (try nics()),
+            guard routes == (try ExternalRouteTable.parseDiagnosing(readRoutes())), interfaces == (try nics()),
                   NSDictionary(dictionary: before).isEqual(to: try values(store)) else { throw ExternalError.changedDuringRead }
             try Task.checkCancellation()
             return try ExternalObservation(capturedAtUptime: began,
@@ -45,7 +45,8 @@ public struct ExternalSystemSnapshotReader: Sendable {
                     let nic = interfaces[name]!
                     return ExternalInterface(name: name, isUp: nic.up, isTunnelCandidate: nic.tunnel, addresses: nic.addresses)
                 }, physicalPaths: paths, routes: routes, observedDNSServers: dns.sorted())
-        } catch let error as ExternalError { throw error }
+        } catch let error as ExternalRouteParseDiagnostic { throw error }
+        catch let error as ExternalError { throw error }
         catch { throw ExternalError.readFailed }
     }
     private func values(_ store: SCDynamicStore) throws -> [String: Any] {
