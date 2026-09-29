@@ -71,13 +71,16 @@ struct ExternalPreviewApp: App {
     @NSApplicationDelegateAdaptor(ExternalTerminationDelegate.self) private var delegate
     @StateObject private var model: ExternalModel
     @StateObject private var profiles: ExternalProfilesModel
+    @StateObject private var helper: ExternalHelperModel
     init() {
         let network = ExternalModel()
         let documents = ExternalProfilesModel()
+        let control = ExternalHelperModel()
         _model = StateObject(wrappedValue: network)
         _profiles = StateObject(wrappedValue: documents)
-        ExternalTerminationDelegate.shouldTerminate = { [weak network, weak documents] in
-            guard documents?.confirmDiscard() != false else { return false }
+        _helper = StateObject(wrappedValue: control)
+        ExternalTerminationDelegate.shouldTerminate = { [weak network, weak documents, weak control] in
+            guard documents?.confirmDiscard() != false, control?.confirmQuit() != false else { return false }
             network?.cancel(); return true
         }
     }
@@ -85,8 +88,8 @@ struct ExternalPreviewApp: App {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("第三方 VPN · EX-INT-03A").font(.title2).bold()
-                    Text("原客户端负责连接；这里管理本机规则、检测并预览直连例外。应用内 Helper 执行尚未接通。")
+                    Text("第三方 VPN · EX-INT-03B").font(.title2).bold()
+                    Text("原客户端负责连接；规则预览保持只读。独立签名控制版可授权 Helper，受控写入默认关闭。")
                     HStack {
                         Button("检测当前网络（只读）") { model.detect(previewRules: false) }.disabled(model.busy)
                         Button("取消检测 / 清除结果") { model.cancel() }
@@ -124,6 +127,7 @@ struct ExternalPreviewApp: App {
                             }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
                         }
                     }
+                    ExternalHelperPanel(helper: helper, profiles: profiles)
                     Text(ExternalCore.ExternalPreview.boundary).font(.footnote)
                     Text("原始网络观察只留在内存，不上传或自动保存。网络变化后必须重新检测；结果最多显示 30 秒。")
                         .font(.footnote)
@@ -131,11 +135,11 @@ struct ExternalPreviewApp: App {
             }.frame(minWidth: 880, minHeight: 700)
                 .onChange(of: profiles.changeID, initial: true) { _, _ in
                     // Selection, editing, save and reload invalidate all old observations.
-                    model.cancel(); model.rules = profiles.enabledRules
+                    model.cancel(); helper.invalidate(); model.rules = profiles.enabledRules
                 }
-                .onChange(of: profiles.batchText) { _, _ in model.cancel() }
-                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in model.cancel() }
-                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in model.cancel() }
+                .onChange(of: profiles.batchText) { _, _ in model.cancel(); helper.invalidate() }
+                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in model.cancel(); helper.invalidate() }
+                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in model.cancel(); helper.invalidate() }
         }.commands {
             CommandGroup(replacing: .appTermination) {
                 Button("退出 External 开发预览") { NSApplication.shared.terminate(nil) }

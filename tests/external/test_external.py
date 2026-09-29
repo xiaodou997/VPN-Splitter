@@ -16,9 +16,10 @@ PACKAGE = ROOT / 'Packages/ExternalCore'
 class ExternalContracts(unittest.TestCase):
     def test_package_uses_existing_policycore_without_remote_dependencies(self):
         package = json.loads(subprocess.check_output(['swift', 'package', '--package-path', str(PACKAGE), 'dump-package'], text=True, timeout=30))
-        self.assertEqual(len(package['dependencies']), 1)
-        dependency = package['dependencies'][0]['fileSystem'][0]
-        self.assertEqual(Path(dependency['path']).resolve(), (ROOT / 'Packages/PolicyCore').resolve())
+        dependencies = {Path(d['fileSystem'][0]['path']).resolve() for d in package['dependencies']}
+        self.assertEqual(dependencies, {(ROOT / 'Packages/PolicyCore').resolve(), (ROOT / 'Packages/ExternalControl').resolve()})
+        core = next(t for t in package['targets'] if t['name'] == 'ExternalCore')
+        self.assertEqual(core['dependencies'], [{'byName': ['PolicyCore', None]}])
         self.assertEqual({t['name'] for t in package['targets']}, {'ExternalCore', 'ExternalPreview', 'ExternalCoreTests'})
         source = (PACKAGE / 'Sources/ExternalCore/ExternalPreview.swift').read_text()
         self.assertIn('IPv4PolicyCompiler.compile(', source)

@@ -16,8 +16,8 @@ class ExecutionEntryTests(unittest.TestCase):
     def test_actual_manifest_is_local_and_keeps_preview_read_only(self):
         package = json.loads(subprocess.check_output(['swift', 'package', '--package-path', str(PACKAGE), 'dump-package'], text=True, timeout=30))
         deps = {Path(x['fileSystem'][0]['path']).resolve() for x in package['dependencies']}
-        self.assertEqual(deps, {(ROOT / 'Packages/ExternalCore').resolve(), (ROOT / 'Packages/PolicyCore').resolve()})
-        self.assertEqual({t['name'] for t in package['targets']}, {'CExternalRoute', 'ExternalExecution', 'ExternalLease', 'ExternalExecutionTests'})
+        self.assertEqual(deps, {(ROOT / 'Packages/ExternalCore').resolve(), (ROOT / 'Packages/PolicyCore').resolve(), (ROOT / 'Packages/ExternalControl').resolve()})
+        self.assertEqual({t['name'] for t in package['targets']}, {'CExternalRoute', 'ExternalExecution', 'ExternalLease', 'ExternalHelper', 'ExternalExecutionTests'})
         self.assertIn('public var canApply: Bool { false }', (ROOT / 'Packages/ExternalCore/Sources/ExternalCore/ExternalPreview.swift').read_text())
         source = (ROOT / 'Packages/ExternalCore/Package.swift').read_text()
         self.assertNotIn('ExternalExecution', source)

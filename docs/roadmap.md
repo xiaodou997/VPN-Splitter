@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-28 / EX-INT-03A 本机规则方案管理。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-29 / EX-INT-03B 认证 Helper 与应用内会话代码接线。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -8,8 +8,9 @@
 | --- | --- |
 | EX-INT-01 / 02 只读路径 | 已有用户报告的执行器原生构建、inspect 和原生 GET probe 通过；界面中的检测仍只读，不等于真实双出口验收 |
 | EX-INT-02 前台候选 | 现场观察到 ADD 后回包超时及残留，已由用户人工恢复并 audit 未见候选残留；FIX-08 已提交，修复后自动确认/撤销仍未验收。人工恢复不是自动回滚通过 |
-| EX-INT-03A | External 界面接入 16 套规则方案保存/选择/复制/删除，逐条编辑/停用/排序，编辑保护与版本冲突拒绝；20 项核心及 3 项界面模型回归通过，Mac 新页面未验收；不是完整 Helper |
-| External 下一主线 | 受限 Helper 身份验证、连接会话与 GUI 应用/停止接线；FIX-08 真机运行验收独立保留，不阻断无网络副作用的开发。不以规则文件/预览或 UUID 代替执行授权 |
+| EX-INT-03A | External 界面接入 16 套规则方案保存/选择/复制/删除，逐条编辑/停用/排序，编辑保护与版本冲突拒绝；已有离线回归；用户本轮报告验证通过（未提供逐项明细，不扩大为 Helper/网络验收） |
+| EX-INT-03B | 真实 SMAppService/XPC 身份门控、一次性预检票据、原生路由事务接线与 GUI 应用/停止状态已有代码；默认构建禁止写入；24 项会话与 13 项客户端/界面/构建回归通过。Mac 编译、真实认证/注册及自动撤销未验收 |
+| External 下一主线 | 集中验证新控制 App/Helper 原生构建与正反向身份授权，再进行受控写入/停止联调；补齐断连后的状态恢复与持久化恢复交互。不把代码接线或预检通过当作实际分流已验收 |
 | OpenVPN 提前项 | .ovpn 导入、材料引用、脚本/插件拒绝与兼容性报告；本批尚未实现，不冒充可连接 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
@@ -26,6 +27,8 @@ External 首轮保持原规范：兼容的路由型全局 VPN + 指定 IPv4 DIRE
 已有 [WG 原生构建证据](evidence/wg-int-10-user-native-build.md)、[FIX-01](evidence/wg-int-10-fix-01-build-blockers.md)、[WG-INT-10](evidence/wg-int-10-provider-runtime.md)、[S0 样本](evidence/s0-single-target-user-result.md)与 [需求规范](requirements-v0.1.md)保留。下面的阶段退出条件是验收约束，不再作为禁止提前开展 External 开发的排队锁。main 统一非强制交付，不发更新 ZIP，不删除本机缓存、锁或历史证据。
 
 EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、IPv4 规则及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
+
+EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍是不能授权的 ad-hoc 预览。`external-helper-test` 仅离线验证，`external-helper-build` 构建独立控制 App 和内嵌 Helper，默认不授权、不安装、不运行。只有显式本机身份签名并经系统批准后才能连接；真实写入另需编译时 route-trial 选择和每次提案确认。见 [Helper 操作](external-helper.md)、[03B 决策](adr/ADR-EX-INT-03B-authenticated-helper.md)和[本轮证据](evidence/ex-int-03b-authenticated-helper.md)。旧恢复标记不会被注册、连接或构建清除。
 
 ## 1. 执行规则
 

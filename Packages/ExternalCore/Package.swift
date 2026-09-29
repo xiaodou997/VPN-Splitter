@@ -6,11 +6,11 @@ let package = Package(
     name: "ExternalCore", platforms: [.macOS("26.0")],
     products: [.library(name: "ExternalCore", targets: ["ExternalCore"]),
                .executable(name: "VPNExternalPreview", targets: ["ExternalPreview"])],
-    dependencies: [.package(path: "../PolicyCore")],
+    dependencies: [.package(path: "../PolicyCore"), .package(path: "../ExternalControl")],
     targets: [
         .target(name: "ExternalCore", dependencies: ["PolicyCore"],
             linkerSettings: [.linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))]),
-        .executableTarget(name: "ExternalPreview", dependencies: ["ExternalCore", "PolicyCore"],
+        .executableTarget(name: "ExternalPreview", dependencies: ["ExternalCore", "PolicyCore", "ExternalControl"],
             linkerSettings: [.linkedFramework("SystemConfiguration", .when(platforms: [.macOS]))]),
         .testTarget(name: "ExternalCoreTests", dependencies: ["ExternalCore", "PolicyCore"])
     ], swiftLanguageModes: [.v6]

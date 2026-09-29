@@ -7,7 +7,7 @@ MODE=${1:-doctor}
 if [[ $# -gt 0 ]]; then shift; fi
 usage() {
     cat <<'TEXT'
-用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test]
+用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test|external-helper-build [--identity NAME --team-id TEAM] [--route-trial]|external-helper-test]
   doctor          只读检查，一次列出全部环境问题；默认检查界面开发环境
   doctor engine   检查原生引擎构建环境，包括 Go；不下载、不构建
   run             构建并打开 LocalDev；不需要 Go，不连接 VPN
@@ -25,6 +25,8 @@ usage() {
   external-test   External 纯逻辑与入口离线回归，不修改网络
   external-executor-build 仅编译有限前台路由执行器，不运行、不提权、不安装 Helper
   external-execution-test 运行有限执行/撤销与持久化标记离线回归，不修改网络
+  external-helper-build 构建独立控制 App/受限 Helper；默认不可授权、不安装、不运行；签名/试写显式选择
+  external-helper-test 会话、身份合同、客户端/界面与构建离线回归，不注册服务或修改网络
 不需要历史补丁或 ZIP；本入口不执行 git pull 或安装任何软件。
 TEXT
 }
@@ -109,6 +111,15 @@ case "$MODE" in
         [[ $# == 0 ]] || { usage >&2; exit 2; }
         require_python
         exec /bin/bash "$ROOT/tools/external/execution-test.sh"
+        ;;
+    external-helper-build)
+        require_python
+        exec python3 "$ROOT/tools/external/helper-build.py" "$@"
+        ;;
+    external-helper-test)
+        [[ $# == 0 ]] || { usage >&2; exit 2; }
+        require_python
+        exec /bin/bash "$ROOT/tools/external/helper-test.sh"
         ;;
     help|-h|--help) usage ;;
     *) usage >&2; exit 2 ;;
