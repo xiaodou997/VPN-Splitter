@@ -46,15 +46,18 @@ final class ExternalHelperModel: ObservableObject {
     private func savedSelection(_ profiles: ExternalProfilesModel) async throws -> (UUID, UUID, String) {
         try Task.checkCancellation()
         guard !profiles.busy, !profiles.hasUnsavedChanges, !profiles.editor.mustReload,
-              let profile = profiles.editor.workspace.selected, let revision = profiles.editor.workspace.revision,
-              !profile.enabledRulesText.isEmpty else { throw ExternalControlError.staleSelection }
+              let profile = profiles.editor.workspace.selected, let revision = profiles.editor.workspace.revision else {
+            throw ExternalControlError.staleSelection
+        }
+        let rules = try profile.routeExecutionRulesText()
+        guard !rules.isEmpty else { throw ExternalControlError.staleSelection }
         let before = profiles.editor.workspace; let id = profiles.changeID
         let store = try ExternalProfileStore.applicationStore()
         let disk = try await store.load()
         try Task.checkCancellation()
         guard disk == before, profiles.changeID == id, !profiles.hasUnsavedChanges,
               !profiles.busy, !profiles.editor.mustReload else { throw ExternalControlError.staleSelection }
-        return (profile.id, revision, profile.enabledRulesText)
+        return (profile.id, revision, rules)
     }
     func prepare(_ profiles: ExternalProfilesModel) {
         guard !busy, !cleanupUnconfirmed else { return }
@@ -169,13 +172,16 @@ struct ExternalHelperPanel: View {
                 }.disabled(helper.busy)
                 Text(helper.message).textSelection(.enabled)
                 Button("用已保存方案进行 Helper 预检") { helper.prepare(profiles) }
-                    .disabled(helper.busy || helper.cleanupUnconfirmed || profiles.busy || profiles.hasUnsavedChanges || profiles.editor.mustReload)
+                    .disabled(helper.busy || helper.cleanupUnconfirmed || profiles.busy || profiles.hasUnsavedChanges || profiles.editor.mustReload || !profiles.canRouteExecute)
                 if let response = helper.response {
                     ForEach(Array(response.proposals.enumerated()), id: \.offset) { _, route in
                         Text("\(route.destination) → \(route.gateway) / \(route.interface) · \(route.disposition)")
                     }
                     Text("服务状态：\(response.result.state.rawValue)；\(response.result.diagnostic)").textSelection(.enabled)
                     if !response.canApply { Text("此 Helper 为只读接线版。受控写入须单独签名的 route-trial 构建；不会自动解锁。") }
+                }
+                if profiles.hasEnabledFlowRules {
+                    Text("域名/应用规则需要 Flow Bypass；当前 Route Helper 不会执行或忽略它们。").font(.caption)
                 }
                 Toggle("我已核对提案，允许本次有限 IPv4 直连例外", isOn: $helper.confirmed)
                     .disabled(helper.busy || helper.response?.result.state != .prepared || helper.response?.canApply != true)
