@@ -22,6 +22,12 @@ final class ExternalHelperModel: ObservableObject {
         client.onDisconnect = { [weak self] in self?.invalidate() }
     }
     var canApply: Bool { !busy && confirmed && response?.canApply == true && response?.result.state == .prepared }
+    var canClearRecovery: Bool {
+        !busy && response?.result.state == .recoveryRequired &&
+            response?.result.code == "recoveryAbsent" &&
+            (response?.result.recoveryCandidates ?? 0) > 0 &&
+            response?.result.recoveryPresent == 0
+    }
     func refresh() { registration = client.registrationStatus() }
     func register() {
         let alert = NSAlert(); alert.messageText = "向系统申请注册 External Helper？"
@@ -32,6 +38,24 @@ final class ExternalHelperModel: ObservableObject {
         catch { report(error) }
     }
     func openSettings() { client.openApprovalSettings() }
+    func auditRecovery() {
+        guard !busy else { return }
+        perform { [self] in
+            if !client.isConnected { _ = try await client.connect() }
+            accept(try await client.send(.init(.recoveryAudit, instance: client.instance)))
+        }
+    }
+    func clearRecovery() {
+        guard canClearRecovery else { return }
+        let alert = NSAlert(); alert.messageText = "清除本工具的恢复标记？"
+        alert.informativeText = "Helper 会重新采集当前网络；只有全部候选及更具体路由仍不存在时才删除 marker。不会删除任何路由或修改 DNS。"
+        alert.addButton(withTitle: "取消"); alert.addButton(withTitle: "重新核查并清除标记")
+        guard alert.runModal() == .alertSecondButtonReturn else { return }
+        perform { [self] in
+            guard client.isConnected else { throw ExternalControlError.disconnected }
+            accept(try await client.send(.init(.recoveryClear, instance: client.instance)))
+        }
+    }
     func unregister() {
         guard !busy, !cleanupUnconfirmed else { return }
         let alert = NSAlert(); alert.messageText = "注销 External Helper？"
@@ -119,10 +143,22 @@ final class ExternalHelperModel: ObservableObject {
             message = "路由添加响应及读回通过，最多 60 秒；实际目标流量尚未验证。"
         case .closed:
             cleanupUnconfirmed = value.result.owned != 0
-            message = "会话结束：\(value.result.code)，剩余回执 \(value.result.owned)，快照 \(value.result.comparison)。不是全系统恢复保证。"
+            if value.result.code == "recoveryCleared" {
+                cleanupUnconfirmed = false
+                message = "恢复标记已在新鲜零残留审计后清除；没有删除路由或修改 DNS。可以重新预检。"
+            } else {
+                message = "会话结束：\(value.result.code)，剩余回执 \(value.result.owned)，快照 \(value.result.comparison)。不是全系统恢复保证。"
+            }
             monitor?.cancel(); monitor = nil; client.close()
         case .recoveryRequired:
-            cleanupUnconfirmed = true; message = "需要恢复：\(value.result.code)。不要重复应用或删除标记。"
+            cleanupUnconfirmed = true
+            if value.result.code == "recoveryAbsent" {
+                message = "恢复核查：候选 \(value.result.recoveryCandidates) 条，当前未发现候选或更具体路由。可执行二次核查后仅清除本工具 marker。"
+            } else if value.result.code == "recoveryPresent" {
+                message = "恢复核查：候选 \(value.result.recoveryCandidates) 条，仍发现 \(value.result.recoveryPresent) 条存在/歧义。不会提供强制删除。"
+            } else {
+                message = "需要恢复：\(value.result.code)。不要重复应用或删除标记。"
+            }
             monitor?.cancel(); monitor = nil
         case .refused:
             message = "Helper 拒绝：\(value.result.code)。"
@@ -171,6 +207,11 @@ struct ExternalHelperPanel: View {
                     Button("注销 Helper") { helper.unregister() }.disabled(helper.cleanupUnconfirmed)
                 }.disabled(helper.busy)
                 Text(helper.message).textSelection(.enabled)
+                HStack {
+                    Button("核查恢复状态（只读）") { helper.auditRecovery() }
+                    Button("重新核查并清除恢复标记") { helper.clearRecovery() }
+                        .disabled(!helper.canClearRecovery)
+                }.disabled(helper.busy)
                 Button("用已保存方案进行 Helper 预检") { helper.prepare(profiles) }
                     .disabled(helper.busy || helper.cleanupUnconfirmed || profiles.busy || profiles.hasUnsavedChanges || profiles.editor.mustReload || !profiles.canRouteExecute)
                 if let response = helper.response {

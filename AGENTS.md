@@ -8,15 +8,15 @@
 
 用户已授权把 S0 与 PolicyCore 合入 main，并以 main 进行本地真机开发。只删除已确认合入且没有新增提交的远端工作分支；不改写历史、不删除用户本地分支、worktree 或 .local 数据。合并不关闭未满足的技术门槛。S0 实测证据见 docs/evidence/s0-single-target-user-result.md；S1 纯逻辑证据见 docs/evidence/s1-tp10-tests.md。
 
-## 当前优先级：External 优先（2026-09-27）
+## 当前优先级：External MVP 优先（2026-09-29）
 
-用户重新强调原业务目标是第三方 VPN 分流，并已要求按照调整顺序继续。执行次序现在为 External 识别/预览 → 受限执行/撤销；OpenVPN 导入与兼容性检查提前；WireGuard 暂停签名催办和新增功能。见 docs/adr/ADR-EX-INT-01-external-first.md、docs/external-development.md 与 docs/roadmap.md。该 ADR 替代 ADR-001 D09 的排队顺序，不修改各阶段验收门槛或 EX-01～08/OV-01～08 范围。
+用户最新确认：先把第三方 VPN 做到基本可用；WireGuard 保留现有成果，待 External MVP 后补最小真机闭环；OpenVPN 暂列 Backlog。External 当前除 Route Bypass 外新增 Flow Bypass 研究线，用于应用/域名规则；未通过真机前不能把 APPLICATION/DOMAIN-* 冒充可执行。见 docs/adr/ADR-EX-INT-01-external-first.md、docs/external-development.md 与 docs/roadmap.md。该 ADR 替代 ADR-001 D09 的排队顺序，不修改各阶段验收门槛或 EX-01～08/OV-01～08 范围。
 
 WG-INT-10 正式集成 unsigned 已有 USER_REPORTED PASS，见 docs/evidence/wg-int-10-user-native-build.md；不是可用 VPN/签名/双出口验收。已有产物、48eee07 和 S0 单目标路径证据保留，不要求重做。无需先执行 provider-build --sign 才能推进 External。
 
 EX-INT-01 在 Packages/ExternalCore 提供实际 macOS 只读采集、IPv4 路由形态识别和 PolicyCore DIRECT 预览。dev.sh external-run 打开独立、仅 ad-hoc 的 External 开发预览；external-build 只编译；external-test 是离线回归，无需 Go 或开发签名。原 run/test、WG/S1 源码和权限保持不变。不要把新预览说成已集成到 LocalDev 或已能应用分流。
 
-下一交付为 EX-INT-02 的受限执行与可确认撤销，须单独确定路由操作、身份/授权、操作回执、网络版本和持久化恢复。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
+当前交付已推进至 EX-INT-03D 与 EX-FLOW-01：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；FLOW-01 只验证 Transparent Proxy 的来源应用/hostname 元数据，provider 必须默认放行且不复制流量。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
 
 ## LocalDev 历史调序与持续安全边界
 
@@ -32,7 +32,7 @@ LocalDev 独立工程在 apps/macos/LocalDev/，仅 ad-hoc 签名、无 NE entit
 
 macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、自有代码 MIT。主场景 Include；External 首发仅经验证的 Bypass。一次一个会话，不自动叠加隧道。
 
-不提供系统级 Kill Switch、完整 IPv6、REJECT 执行、按 App/进程或严格域名隔离。不支持的策略在应用前拒绝，不能静默略过。DNS resolver 选择不等于数据路由。
+不提供系统级 Kill Switch、完整 IPv6、REJECT 执行、URL 级或任意进程正则兼容。APPLICATION/DOMAIN-* 只有在 Flow Bypass 真机能力验证后才可开放执行；否则仅保存和诊断。不支持的策略在应用前拒绝，不能静默略过。DNS resolver 选择不等于数据路由。
 
 ## 实现与验证
 

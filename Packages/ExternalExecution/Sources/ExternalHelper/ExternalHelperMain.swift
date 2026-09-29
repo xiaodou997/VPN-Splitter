@@ -4,6 +4,7 @@ import Foundation
 import Darwin
 import SystemConfiguration
 import ExternalControl
+import ExternalExecution
 import CExternalRoute
 
 // Presence is a recovery latch, never ownership. Do not create, read payloads,
@@ -103,7 +104,16 @@ private final class ExternalHelperListener: NSObject, NSXPCListenerDelegate, @un
             let enabled = false
             #endif
             let service = ExternalControlService(allowApply: enabled, initialRecovery: pendingRecovery(), now: { er_continuous_seconds() },
-                authorize: { consoleAllows($0) }, factory: { try ExternalHelperLease(rules: $0, cancellation: $1) })
+                authorize: { consoleAllows($0) }, factory: { try ExternalHelperLease(rules: $0, cancellation: $1) },
+                recovery: { action in
+                    let report = try ExternalRecoveryHost.audit(clearMarkerIfAbsent: action == .recoveryClear)
+                    let cleared = report.markerCleared
+                    let state: ExternalControlState = cleared ? .closed : .recoveryRequired
+                    let code = cleared ? "recoveryCleared" :
+                        (report.presentOrAmbiguous == 0 ? "recoveryAbsent" : "recoveryPresent")
+                    return .init(state, code: code, recoveryCandidates: report.candidates,
+                                 recoveryPresent: report.presentOrAmbiguous)
+                })
             let requirement = try ExternalControlIdentity.requirement(team: team, helper: false)
             let delegate = ExternalHelperListener(service: service, requirement: requirement)
             let listener = NSXPCListener(machServiceName: ExternalControlIdentity.service)

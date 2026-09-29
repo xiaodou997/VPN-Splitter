@@ -19,6 +19,7 @@ public actor ExternalControlService {
     private let now: @Sendable () -> TimeInterval
     private let authorize: @Sendable (UInt32) -> Bool
     private let factory: @Sendable (String, ExternalControlCancellation) throws -> any ExternalControlledLease
+    private let recovery: @Sendable (ExternalControlAction) throws -> ExternalControlResult
     private struct Client {
         let peer: ExternalControlPeer
         var requests: Set<UUID> = []
@@ -42,8 +43,12 @@ public actor ExternalControlService {
     private var lastClock: TimeInterval = 0
     public init(allowApply: Bool, initialRecovery: Bool = false, now: @escaping @Sendable () -> TimeInterval,
                 authorize: @escaping @Sendable (UInt32) -> Bool,
-                factory: @escaping @Sendable (String, ExternalControlCancellation) throws -> any ExternalControlledLease) {
-        self.allowApply = allowApply; self.blocked = initialRecovery; self.now = now; self.authorize = authorize; self.factory = factory
+                factory: @escaping @Sendable (String, ExternalControlCancellation) throws -> any ExternalControlledLease,
+                recovery: @escaping @Sendable (ExternalControlAction) throws -> ExternalControlResult = { _ in
+                    .init(.refused, code: ExternalControlError.unavailable.rawValue)
+                }) {
+        self.allowApply = allowApply; self.blocked = initialRecovery; self.now = now
+        self.authorize = authorize; self.factory = factory; self.recovery = recovery
     }
     public func handle(_ request: ExternalControlRequest, peer: ExternalControlPeer) -> ExternalControlReply {
         tick()
@@ -83,6 +88,26 @@ public actor ExternalControlService {
                                code: blocked ? "recoveryRequired" : (session == nil ? "none" : "busy")))
         }
         guard !peer.cancellation.isCancelled, authorize(peer.uid) else { return refused(.authentication) }
+        if request.action == .recoveryAudit {
+            guard blocked, session == nil else {
+                return reply(.init(blocked ? .recoveryRequired : .idle,
+                                   code: blocked ? "recoveryRequired" : "noRecovery"))
+            }
+            do { return reply(try recovery(.recoveryAudit)) }
+            catch { return reply(.init(.recoveryRequired, code: "recoveryAuditFailed")) }
+        }
+        if request.action == .recoveryClear {
+            guard blocked, session == nil else {
+                return reply(.init(blocked ? .recoveryRequired : .idle,
+                                   code: blocked ? "recoveryRequired" : "noRecovery"))
+            }
+            do {
+                let result = try recovery(.recoveryClear)
+                if result.state == .closed, result.code == "recoveryCleared",
+                   result.recoveryPresent == 0 { blocked = false }
+                return reply(result)
+            } catch { return reply(.init(.recoveryRequired, code: "recoveryClearFailed")) }
+        }
         guard !blocked else { return reply(.init(.recoveryRequired, code: "recoveryRequired")) }
         if request.action == .quiesce {
             guard session == nil else { return refused(.busy) }
@@ -114,6 +139,7 @@ public actor ExternalControlService {
                 if peer.cancellation.isCancelled || !authorize(peer.uid) { finish() }
                 else if result.state != .active { finish() }
                 return reply(terminal[peer.id] ?? value.lease.result)
+            case .recoveryAudit, .recoveryClear: return refused(.invalidRequest)
             default: return refused(.invalidRequest)
             }
         } catch {

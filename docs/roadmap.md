@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-29 / EX-INT-03B 认证 Helper 与应用内会话代码接线。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-29 / EX-INT-03D Recovery UI + EX-FLOW-01 Transparent Proxy 能力探针。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -10,7 +10,9 @@
 | EX-INT-02 前台候选 | 现场观察到 ADD 后回包超时及残留，已由用户人工恢复并 audit 未见候选残留；FIX-08 已提交，修复后自动确认/撤销仍未验收。人工恢复不是自动回滚通过 |
 | EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
-| External 下一主线 | 先补 Recovery UI；并行开展 EX-FLOW-01：Transparent Proxy + 来源应用身份 + hostname + 物理接口出站可行性。通过后把域名/应用规则接入 Flow Bypass；Route Bypass 继续作为 IP 兼容路径 |
+| EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |
+| EX-FLOW-01 | 新 ExternalFlow 包：first-match flow 规则核心 + NETransparentProxyProvider 只读元数据探针骨架；provider 对所有 flow 返回 false，不复制/重定向流量。App signing ID/remoteHostname 的实际可见性、系统扩展签名/运行仍待 Mac 验证 |
+| External 下一主线 | 先完成 03D/03B 的 Mac 原生构建与系统授权；FLOW-01 真机验证来源 App/hostname/TCP 后，再实现 FLOW-02 的物理接口 DIRECT 流复制和 UDP/QUIC。Route Bypass 继续作为 IP 兼容路径 |
 | OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
@@ -32,7 +34,7 @@ EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍
 
 ## 1. 执行规则
 
-原 S0 -> S1 -> S2 -> S3 -> S4 -> S5 的开发排队由 ADR-EX-INT-01 调整：先推进 External、提前 OpenVPN 导入、暂停 WG 签名催办。S0–S5 任务编号与退出条件保留，不同时开发三个完整运行后端。可按 ADR-007 并行做不依赖后端的 LocalDev 界面、配置管理、规则编辑、纯逻辑测试、文档和合成配置，不绕过阶段的事实门槛。
+原 S0 -> S1 -> S2 -> S3 -> S4 -> S5 的开发排队由 ADR-EX-INT-01 及后续用户优先级调整：先把 External 做到基本可用；WireGuard 保留现有成果、在 External MVP 后补最小真机闭环；OpenVPN 暂列 Backlog。S0–S5 任务编号与退出条件保留，不同时开发三个完整运行后端。可按 ADR-007 并行做不依赖后端的 LocalDev 界面、配置管理、规则编辑、纯逻辑测试、文档和合成配置，不绕过阶段的事实门槛。
 
 每个实现 PR 只覆盖一个可验证问题，引用任务编号、需求编号和测试 ID，说明改变的能力、风险、回滚与未执行测试。提交源码不等于完成任务；阶段关闭需要证据。
 

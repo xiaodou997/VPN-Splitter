@@ -5,7 +5,7 @@ public enum ExternalControlError: String, Error, Sendable {
     case invalidRequest, invalidResponse, unavailable, authentication, busy, expired
     case staleSelection, trialDisabled, recoveryRequired, disconnected, timeout
 }
-public enum ExternalControlAction: String, Codable, Sendable { case hello, prepare, apply, status, stop, quiesce }
+public enum ExternalControlAction: String, Codable, Sendable { case hello, prepare, apply, status, stop, recoveryAudit, recoveryClear, quiesce }
 public enum ExternalControlState: String, Codable, Sendable {
     case idle, prepared, applying, active, stopping, closed, recoveryRequired, refused
 }
@@ -45,7 +45,7 @@ public struct ExternalControlRequest: Codable, Sendable {
         case .apply:
             guard value.instance != nil, value.profile != nil, value.revision != nil,
                   value.rules == nil, value.ticket != nil else { throw ExternalControlError.invalidRequest }
-        case .status, .stop, .quiesce:
+        case .status, .stop, .recoveryAudit, .recoveryClear, .quiesce:
             guard value.instance != nil, noSelection, value.ticket == nil else { throw ExternalControlError.invalidRequest }
         }
         return value
@@ -67,10 +67,14 @@ public struct ExternalControlResult: Codable, Sendable {
     public var owned: Int
     public var comparison: String
     public var diagnostic: String
+    public var recoveryCandidates: Int
+    public var recoveryPresent: Int
     public init(_ state: ExternalControlState, code: String = "none", owned: Int = 0,
-                comparison: String = "notObserved", diagnostic: String = "") {
+                comparison: String = "notObserved", diagnostic: String = "",
+                recoveryCandidates: Int = 0, recoveryPresent: Int = 0) {
         self.state = state; self.code = code; self.owned = owned
         self.comparison = comparison; self.diagnostic = diagnostic
+        self.recoveryCandidates = recoveryCandidates; self.recoveryPresent = recoveryPresent
     }
 }
 public struct ExternalControlReply: Codable, Sendable {
@@ -90,6 +94,8 @@ public struct ExternalControlReply: Codable, Sendable {
               value.schema == 1, value.requestID == request.id,
               request.instance == nil || value.instance == request.instance,
               value.proposals.count <= 8, (0...8).contains(value.result.owned),
+              (0...8).contains(value.result.recoveryCandidates), (0...8).contains(value.result.recoveryPresent),
+              value.result.recoveryPresent <= value.result.recoveryCandidates,
               value.result.code.utf8.count <= 64, value.result.diagnostic.utf8.count <= 1024,
               value.proposals.allSatisfy({ $0.destination.utf8.count <= 18 && $0.gateway.utf8.count <= 15 &&
                   $0.interface.utf8.count <= 32 && $0.disposition.utf8.count <= 40 }) else {
