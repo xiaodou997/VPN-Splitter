@@ -29,7 +29,7 @@ External 首轮保持原规范：兼容的路由型全局 VPN + 指定 IPv4 DIRE
 
 已有 [WG 原生构建证据](evidence/wg-int-10-user-native-build.md)、[FIX-01](evidence/wg-int-10-fix-01-build-blockers.md)、[WG-INT-10](evidence/wg-int-10-provider-runtime.md)、[S0 样本](evidence/s0-single-target-user-result.md)与 [需求规范](requirements-v0.1.md)保留。下面的阶段退出条件是验收约束，不再作为禁止提前开展 External 开发的排队锁。main 统一非强制交付，不发更新 ZIP，不删除本机缓存、锁或历史证据。
 
-EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、IPv4 规则及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
+EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、类型化 IP/域名/应用选择器及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
 
 EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍是不能授权的 ad-hoc 预览。`external-helper-test` 仅离线验证，`external-helper-build` 构建独立控制 App 和内嵌 Helper，默认不授权、不安装、不运行。只有显式本机身份签名并经系统批准后才能连接；真实写入另需编译时 route-trial 选择和每次提案确认。见 [Helper 操作](external-helper.md)、[03B 决策](adr/ADR-EX-INT-03B-authenticated-helper.md)和[本轮证据](evidence/ex-int-03b-authenticated-helper.md)。旧恢复标记不会被注册、连接或构建清除。
 
@@ -131,7 +131,7 @@ EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍
 
 一个任务完成需代码/文档一致、测试可重复、错误/权限/恢复路径覆盖、无秘密、依赖许可记录齐全、诊断可解释、未测项明确。影响系统网络的变更额外提供前后状态及撤销证据。
 
-新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：推进 External 的受限执行、撤销和实际场景验证，OpenVPN 导入/兼容性检查提前；WG 原生构建成功证据保留，签名暂缓，不要求为本次开发重跑。不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批构建通过宣告 S1–S5 通过。
+新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：先把 External Route/Flow Bypass、恢复和实际场景做到基本可用；WG 原生构建成功证据保留，External MVP 后补最小真机闭环；OpenVPN 暂列 Backlog。不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批构建通过宣告 S1–S5 通过。
 
 ## main 工作流与 S1-01 交付
 
