@@ -91,6 +91,23 @@ final class ExternalProfileTests: XCTestCase {
         let records = json["profiles"] as! [[String:Any]]
         XCTAssertEqual(Set(records[0].keys), ["id", "name", "rules"])
         XCTAssertFalse(String(reflecting:w).contains("198.51")); XCTAssertEqual(Mirror(reflecting:w).children.count,0)
+        let rule = (records[0]["rules"] as! [[String:Any]])[0]
+        XCTAssertEqual(rule["kind"] as? String, "IP-CIDR")
+    }
+    func testTypedDomainApplicationAndLegacyMigration() throws {
+        var value = ExternalSavedProfile(name: "typed")
+        try value.appendBatch("DOMAIN,WWW.Example.COM.\nDOMAIN-SUFFIX,*.Example.COM\nDOMAIN-KEYWORD,GitHub\nAPP,Google Chrome\n192.0.2.9")
+        XCTAssertEqual(value.rules.map(\.kind), [.domain, .domainSuffix, .domainKeyword, .application, .ipCIDR])
+        XCTAssertEqual(value.rules.map(\.target), ["www.example.com", "example.com", "github", "Google Chrome", "192.0.2.9/32"])
+        XCTAssertTrue(value.hasEnabledFlowRules)
+        XCTAssertThrowsError(try value.routeExecutionRulesText()) {
+            XCTAssertEqual($0 as? ExternalProfileError, .ruleNeedsFlowBackend)
+        }
+        let legacy = #"{"format":"external-profiles-v1","revision":"00000000-0000-0000-0000-000000000001","profiles":[{"id":"00000000-0000-0000-0000-000000000002","name":"old","rules":[{"id":"00000000-0000-0000-0000-000000000003","target":"192.0.2.9","enabled":true}]}],"selectedID":"00000000-0000-0000-0000-000000000002"}"#
+        let migrated = try JSONDecoder().decode(ExternalProfileWorkspace.self, from: Data(legacy.utf8)).validated(persisted: true)
+        XCTAssertEqual(migrated.format, ExternalProfileWorkspace.schema)
+        XCTAssertEqual(migrated.selected?.rules.first?.kind, .ipCIDR)
+        XCTAssertTrue(String(decoding: try JSONEncoder().encode(migrated), as: UTF8.self).contains("external-profiles-v2"))
     }
 }
 
@@ -145,7 +162,7 @@ final class ExternalProfileStoreTests: XCTestCase, @unchecked Sendable {
         let store = ExternalProfileStore(directory:root.appendingPathComponent("store"))
         let first = try await store.save(initial(),expectedRevision:nil)
         let future = try JSONEncoder().encode(first)
-        let text = String(decoding:future,as:UTF8.self).replacingOccurrences(of:"external-profiles-v1",with:"external-profiles-v9")
+        let text = String(decoding:future,as:UTF8.self).replacingOccurrences(of:"external-profiles-v2",with:"external-profiles-v9")
         try replace(root,Data(text.utf8))
         do { _ = try await store.load(); XCTFail("future version accepted") }
         catch { XCTAssertEqual(error as? ExternalProfileError,.unsupportedVersion) }

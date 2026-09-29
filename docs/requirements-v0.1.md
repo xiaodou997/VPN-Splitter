@@ -89,6 +89,8 @@ VPN-Splitter 是本机分流客户端和第三方 VPN 兼容层，不提供 VPN 
 | RULE-03 | 相同 IP 的相反域名动作、与 CIDR 的不可表达冲突等必须被检测；已知冲突拒绝启用 |
 | RULE-04 | REJECT、IP-CIDR6 可解析保存为禁用草稿；后端不支持时启用即报错 |
 | RULE-05 | 每次应用有 generation、网络 epoch、plan 摘要和逐规则编译解释 |
+| RULE-06 | 用户规则输入支持 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD 与应用选择器。应用选择以“模糊搜索软件名 → 稳定 bundle/signing identity”为主，不把显示名模糊匹配直接当执行身份 |
+| RULE-07 | External Route Bypass 不能执行来源应用规则，也不能完整发现任意域名后缀；含此类启用规则时整体阻断。Flow Bypass 只有在 Transparent Proxy、来源身份和物理出口均经真机验证后才可开放 |
 | DNS-01 | Managed Include 使用明确企业域和 VPN DNS；其他域保留系统解析选择；匹配不等于数据选路 |
 | DNS-02 | VPN DNS 地址必须经预期路径可达，避免端点解析和 DNS 启动依赖环 |
 | DNS-03 | Managed Bypass 单独验证默认路由对 resolver 的影响；默认使用审核后的 VPN DNS，不保证逐域直连 DNS |
@@ -127,4 +129,4 @@ DIST-02：发行物含许可证、第三方说明、版本矩阵、已知限制�
 
 ## 9. 非目标
 
-Windows、Intel、App Store、自动更新、按 App/进程/URL 分流、多 VPN 叠加、代理出口、mihomo 订阅兼容、任意公网后缀动态发现、Fake-IP、透明代理、系统级 Kill Switch、完整 IPv6、VPN 服务售卖、破解官方客户端、绕过 MDM/企业安全策略均不在 v0.1。
+Windows、Intel、App Store、自动更新、URL 级分流、任意进程正则兼容、多 VPN 叠加、代理订阅/出口、mihomo 配置或订阅兼容、任意公网后缀离线枚举、Fake-IP、透明代理、系统级 Kill Switch、完整 IPv6、VPN 服务售卖、破解官方客户端、绕过 MDM/企业安全策略均不在 v0.1。

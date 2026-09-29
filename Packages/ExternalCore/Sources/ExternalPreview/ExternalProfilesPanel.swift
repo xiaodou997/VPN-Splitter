@@ -24,7 +24,7 @@ struct ExternalProfilesPanel: View {
                         TextField("方案名称", text: Binding(get: { profiles.editor.draft?.name ?? "" }, set: profiles.editName))
                         Text(profiles.hasUnsavedChanges ? "未保存" : "已保存").font(.caption)
                     }
-                    Text("IPv4 DIRECT 例外 · 从上到下检查 · 停用项不进入预览")
+                    Text("DIRECT 规则 · 从上到下检查 · 支持 IP、域名与应用选择器；停用项不进入计划")
                         .font(.caption)
                     ForEach(Array(draft.rules.enumerated()), id: \.element.id) { index, rule in
                         HStack {
@@ -33,7 +33,8 @@ struct ExternalProfilesPanel: View {
                             }, set: { profiles.editRule(rule.id, enabled: $0) })).labelsHidden()
                                 .accessibilityLabel("启用第 \(index + 1) 条规则")
                             Text("\(index + 1)").font(.caption).frame(width: 22)
-                            TextField("IPv4 / CIDR", text: Binding(get: {
+                            Text(rule.kind.rawValue).font(.caption.monospaced()).frame(width: 112, alignment: .leading)
+                            TextField("规则值", text: Binding(get: {
                                 profiles.editor.draft?.rules.first { $0.id == rule.id }?.target ?? ""
                             }, set: { profiles.editRule(rule.id, text: $0) }))
                                 .font(.system(.body, design: .monospaced))
@@ -42,7 +43,7 @@ struct ExternalProfilesPanel: View {
                             Button("移除") { profiles.removeRule(rule.id) }
                         }
                     }
-                    Text("批量加入 IPv4 地址 / CIDR，每行一条（全部规则合计最多 64 条）").font(.caption)
+                    Text("每行一条。裸 IP/CIDR 兼容旧格式；也可写 DOMAIN,example.com / DOMAIN-SUFFIX,example.com / DOMAIN-KEYWORD,google / APP,Telegram。").font(.caption)
                     TextEditor(text: $profiles.batchText).font(.system(.body, design: .monospaced))
                         .frame(height: 90).border(.secondary)
                     HStack {
@@ -54,7 +55,9 @@ struct ExternalProfilesPanel: View {
                             .disabled(!profiles.editor.workspace.profiles.contains { $0.id == draft.id } || profiles.editor.mustReload)
                         Button("保存方案") { profiles.save() }.disabled(!profiles.canSave)
                     }
-                    Text("保存只校验格式并保留顺序；网关、当前网络冲突、范围和 Helper 授权仍须另查。空方案或全部停用时不能预览。")
+                    Text(profiles.hasEnabledFlowRules
+                        ? "当前含域名/应用规则：已保存但 Route Bypass 整体禁止应用，不会静默忽略。后续 Flow Bypass 将按 hostname / 稳定 App 身份执行。"
+                        : "当前全部启用规则可由 IPv4 Route Bypass 继续预检；网关、冲突和 Helper 授权仍须另查。")
                         .font(.footnote)
                 } else {
                     Text("新建方案后加入直连目标；再次打开应用会载入上次保存的选择。")

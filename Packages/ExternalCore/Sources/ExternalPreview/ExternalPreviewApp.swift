@@ -88,8 +88,8 @@ struct ExternalPreviewApp: App {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("第三方 VPN · EX-INT-03B").font(.title2).bold()
-                    Text("原客户端负责连接；规则预览保持只读。独立签名控制版可授权 Helper，受控写入默认关闭。")
+                    Text("第三方 VPN · EX-INT-03C").font(.title2).bold()
+                    Text("原客户端负责连接；规则已扩展为 IP、域名和应用选择器。当前 Route Bypass 只执行纯 IP 方案，域名/应用等待 Flow Bypass。")
                     HStack {
                         Button("检测当前网络（只读）") { model.detect(previewRules: false) }.disabled(model.busy)
                         Button("取消检测 / 清除结果") { model.cancel() }

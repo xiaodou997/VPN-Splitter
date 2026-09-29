@@ -4,12 +4,13 @@ import PolicyCore
 
 /// Local rule documents only: never persist a gateway, network snapshot, receipt or authority.
 public enum ExternalProfileError: String, Error, Sendable {
-    case invalidName, invalidRules, limitExceeded, invalidDocument, unsupportedVersion
+    case invalidName, invalidRules, ruleNeedsFlowBackend, limitExceeded, invalidDocument, unsupportedVersion
     case missingProfile, unsavedChanges, staleRevision, busy, unsafeStorage, readFailed, writeFailed, saveUncertain
     public var message: String {
         switch self {
         case .invalidName: return "方案名称须为 1–64 个字符，且不能包含控制字符。"
-        case .invalidRules: return "规则须为 IPv4 地址或 CIDR；停用的规则也需要有效格式。"
+        case .invalidRules: return "规则格式无效；请检查 IP/CIDR、域名或应用名称。"
+        case .ruleNeedsFlowBackend: return "当前方案含域名/应用规则；现有 Route Bypass 不能按来源应用或动态域名安全执行。"
         case .limitExceeded: return "最多保存 16 套方案，每套最多 64 条规则。"
         case .invalidDocument: return "本地方案文件损坏或不完整；未覆盖、未自动重置。"
         case .unsupportedVersion: return "本地方案由不兼容的版本保存；未降级覆盖。"
@@ -25,22 +26,92 @@ public enum ExternalProfileError: String, Error, Sendable {
     }
 }
 
+public enum ExternalSavedRuleKind: String, Codable, CaseIterable, Sendable {
+    case ipCIDR = "IP-CIDR"
+    case domain = "DOMAIN"
+    case domainSuffix = "DOMAIN-SUFFIX"
+    case domainKeyword = "DOMAIN-KEYWORD"
+    case application = "APPLICATION"
+
+    public var requiresFlowBackend: Bool { self != .ipCIDR }
+    public var displayName: String {
+        switch self {
+        case .ipCIDR: return "IP / CIDR"
+        case .domain: return "完整域名"
+        case .domainSuffix: return "域名后缀"
+        case .domainKeyword: return "域名关键字"
+        case .application: return "应用名称"
+        }
+    }
+}
+
 public struct ExternalSavedRule: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
+    public var kind: ExternalSavedRuleKind
     public var target: String
     public var enabled: Bool
-    public init(id: UUID = UUID(), target: String, enabled: Bool = true) {
-        self.id = id; self.target = target; self.enabled = enabled
+    public init(id: UUID = UUID(), kind: ExternalSavedRuleKind = .ipCIDR, target: String, enabled: Bool = true) {
+        self.id = id; self.kind = kind; self.target = target; self.enabled = enabled
+    }
+    private enum CodingKeys: String, CodingKey { case id, kind, target, enabled }
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        kind = try container.decodeIfPresent(ExternalSavedRuleKind.self, forKey: .kind) ?? .ipCIDR
+        target = try container.decode(String.self, forKey: .target)
+        enabled = try container.decode(Bool.self, forKey: .enabled)
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id); try container.encode(kind, forKey: .kind)
+        try container.encode(target, forKey: .target); try container.encode(enabled, forKey: .enabled)
     }
     public func validated() throws -> Self {
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.utf8.count <= 18, !trimmed.isEmpty,
-              !trimmed.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains),
-              let cidr = try? IPv4CIDR(trimmed.contains("/") ? trimmed : trimmed + "/32") else {
+        guard !trimmed.isEmpty,
+              !trimmed.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains) else {
             throw ExternalProfileError.invalidRules
         }
-        // Normalization is explicit in the saved editor; never widen a route silently at execution.
-        return Self(id: id, target: cidr.description, enabled: enabled)
+        switch kind {
+        case .ipCIDR:
+            guard trimmed.utf8.count <= 18,
+                  let cidr = try? IPv4CIDR(trimmed.contains("/") ? trimmed : trimmed + "/32") else {
+                throw ExternalProfileError.invalidRules
+            }
+            return Self(id: id, kind: kind, target: cidr.description, enabled: enabled)
+        case .domain:
+            guard let value = Self.normalizedDomain(trimmed, suffix: false) else { throw ExternalProfileError.invalidRules }
+            return Self(id: id, kind: kind, target: value, enabled: enabled)
+        case .domainSuffix:
+            guard let value = Self.normalizedDomain(trimmed, suffix: true) else { throw ExternalProfileError.invalidRules }
+            return Self(id: id, kind: kind, target: value, enabled: enabled)
+        case .domainKeyword:
+            let value = trimmed.lowercased()
+            guard (1...64).contains(value.utf8.count), value.utf8.allSatisfy({ byte in
+                (48...57).contains(byte) || (97...122).contains(byte) || byte == 45 || byte == 46 || byte == 95
+            }) else { throw ExternalProfileError.invalidRules }
+            return Self(id: id, kind: kind, target: value, enabled: enabled)
+        case .application:
+            guard (1...128).contains(trimmed.count), trimmed.utf8.count <= 512 else {
+                throw ExternalProfileError.invalidRules
+            }
+            return Self(id: id, kind: kind, target: trimmed, enabled: enabled)
+        }
+    }
+    private static func normalizedDomain(_ text: String, suffix: Bool) -> String? {
+        var value = text.lowercased()
+        if suffix && value.hasPrefix("*.") { value.removeFirst(2) }
+        while value.hasSuffix(".") { value.removeLast() }
+        guard (1...253).contains(value.utf8.count), !value.contains("..") else { return nil }
+        let labels = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.isEmpty else { return nil }
+        for label in labels {
+            guard (1...63).contains(label.utf8.count), label.first != "-", label.last != "-",
+                  label.utf8.allSatisfy({ byte in
+                      (48...57).contains(byte) || (97...122).contains(byte) || byte == 45
+                  }) else { return nil }
+        }
+        return value
     }
 }
 
@@ -61,14 +132,36 @@ public struct ExternalSavedProfile: Codable, Equatable, Identifiable, Sendable {
         guard Set(rules.map(\.id)).count == rules.count else { throw ExternalProfileError.invalidDocument }
         return try Self(id: id, name: title, rules: rules.map { try $0.validated() })
     }
-    /// Empty/all-disabled documents may be saved, but are not an executable plan.
-    public var enabledRulesText: String { rules.filter(\.enabled).map(\.target).joined(separator: "\n") }
+    public var enabledRules: [ExternalSavedRule] { rules.filter(\.enabled) }
+    public var hasEnabledFlowRules: Bool { enabledRules.contains { $0.kind.requiresFlowBackend } }
+    public var enabledRulesText: String { (try? routeExecutionRulesText()) ?? "" }
+    public func routeExecutionRulesText() throws -> String {
+        let enabled = enabledRules
+        guard !enabled.isEmpty else { return "" }
+        guard enabled.allSatisfy({ $0.kind == .ipCIDR }) else { throw ExternalProfileError.ruleNeedsFlowBackend }
+        return enabled.map(\.target).joined(separator: "\n")
+    }
     public mutating func appendBatch(_ text: String) throws {
         guard text.utf8.count <= 16_384 else { throw ExternalProfileError.limitExceeded }
         let lines = text.split(whereSeparator: \.isNewline).map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         guard !lines.isEmpty, lines.count <= 64 - rules.count else { throw ExternalProfileError.limitExceeded }
-        let additions = try lines.map { try ExternalSavedRule(target: $0).validated() }
-        rules += additions // All-or-nothing, preserving order and existing per-rule IDs.
+        let additions = try lines.map { line -> ExternalSavedRule in
+            let fields = line.split(separator: ",", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            if fields.count == 1 { return try ExternalSavedRule(target: fields[0]).validated() }
+            let token = fields[0].trimmingCharacters(in: .whitespaces).uppercased()
+            let value = fields[1].trimmingCharacters(in: .whitespaces)
+            let kind: ExternalSavedRuleKind
+            switch token {
+            case "IP", "IP-CIDR": kind = .ipCIDR
+            case "DOMAIN": kind = .domain
+            case "DOMAIN-SUFFIX": kind = .domainSuffix
+            case "DOMAIN-KEYWORD": kind = .domainKeyword
+            case "APP", "APPLICATION": kind = .application
+            default: throw ExternalProfileError.invalidRules
+            }
+            return try ExternalSavedRule(kind: kind, target: value).validated()
+        }
+        rules += additions
     }
     public mutating func move(_ id: UUID, by delta: Int) {
         guard delta == -1 || delta == 1, let index = rules.firstIndex(where: { $0.id == id }),
@@ -76,20 +169,37 @@ public struct ExternalSavedProfile: Codable, Equatable, Identifiable, Sendable {
         rules.swapAt(index, index + delta)
     }
     public func duplicated(name: String) -> Self {
-        Self(name: name, rules: rules.map { ExternalSavedRule(target: $0.target, enabled: $0.enabled) })
+        Self(name: name, rules: rules.map { ExternalSavedRule(kind: $0.kind, target: $0.target, enabled: $0.enabled) })
     }
 }
 
 public struct ExternalProfileWorkspace: Codable, Equatable, Sendable,
     CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public static let schema = "external-profiles-v1"
+    public static let schema = "external-profiles-v2"
+    public static let legacySchema = "external-profiles-v1"
     public let format: String
-    /// nil is allowed only for a missing file; persisted documents always get a fresh revision.
     public var revision: UUID?
     public var profiles: [ExternalSavedProfile]
     public var selectedID: UUID?
     public init(revision: UUID? = nil, profiles: [ExternalSavedProfile] = [], selectedID: UUID? = nil) {
         format = Self.schema; self.revision = revision; self.profiles = profiles; self.selectedID = selectedID
+    }
+    private enum CodingKeys: String, CodingKey { case format, revision, profiles, selectedID }
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let source = try container.decode(String.self, forKey: .format)
+        guard source == Self.schema || source == Self.legacySchema else { throw ExternalProfileError.unsupportedVersion }
+        format = Self.schema
+        revision = try container.decodeIfPresent(UUID.self, forKey: .revision)
+        profiles = try container.decode([ExternalSavedProfile].self, forKey: .profiles)
+        selectedID = try container.decodeIfPresent(UUID.self, forKey: .selectedID)
+    }
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(Self.schema, forKey: .format)
+        try container.encodeIfPresent(revision, forKey: .revision)
+        try container.encode(profiles, forKey: .profiles)
+        try container.encodeIfPresent(selectedID, forKey: .selectedID)
     }
     public var selected: ExternalSavedProfile? { profiles.first { $0.id == selectedID } }
     public func validated(persisted: Bool = false) throws -> Self {
@@ -116,7 +226,7 @@ public struct ExternalProfileWorkspace: Codable, Equatable, Sendable,
         guard profiles.contains(where: { $0.id == id }) else { throw ExternalProfileError.missingProfile }
         var result = self; result.profiles.removeAll { $0.id == id }
         if result.selectedID == id { result.selectedID = nil }
-        return result // No automatic selection or activation of a different profile.
+        return result
     }
     public var description: String { "ExternalProfileWorkspace(<redacted>; rules-only)" }
     public var debugDescription: String { description }
