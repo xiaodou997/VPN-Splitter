@@ -14,6 +14,6 @@ let package = Package(
         .target(name: "ExternalFlowProvider", dependencies: ["ExternalFlowCore", "ExternalFlowWire"],
             linkerSettings: [.linkedFramework("NetworkExtension", .when(platforms: [.macOS])),
                              .linkedFramework("Network", .when(platforms: [.macOS]))]),
-        .testTarget(name: "ExternalFlowCoreTests", dependencies: ["ExternalFlowCore", "ExternalCore", "PolicyCore"])
+        .testTarget(name: "ExternalFlowCoreTests", dependencies: ["ExternalFlowCore", "ExternalCore", "PolicyCore", "ExternalFlowWire"])
     ], swiftLanguageModes: [.v6]
 )
