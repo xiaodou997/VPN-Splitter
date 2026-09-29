@@ -25,7 +25,7 @@ final class ExternalHelperModel: ObservableObject {
     var canClearRecovery: Bool {
         !busy && response?.result.state == .recoveryRequired &&
             response?.result.code == "recoveryAbsent" &&
-            response?.result.recoveryCandidates ?? 0 > 0 &&
+            (response?.result.recoveryCandidates ?? 0) > 0 &&
             response?.result.recoveryPresent == 0
     }
     func refresh() { registration = client.registrationStatus() }
