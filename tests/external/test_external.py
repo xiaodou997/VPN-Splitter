@@ -17,7 +17,8 @@ class ExternalContracts(unittest.TestCase):
     def test_package_uses_existing_policycore_without_remote_dependencies(self):
         package = json.loads(subprocess.check_output(['swift', 'package', '--package-path', str(PACKAGE), 'dump-package'], text=True, timeout=30))
         dependencies = {Path(d['fileSystem'][0]['path']).resolve() for d in package['dependencies']}
-        self.assertEqual(dependencies, {(ROOT / 'Packages/PolicyCore').resolve(), (ROOT / 'Packages/ExternalControl').resolve()})
+        self.assertEqual(dependencies, {(ROOT / 'Packages/PolicyCore').resolve(), (ROOT / 'Packages/ExternalControl').resolve(),
+                                        (ROOT / 'Packages/ExternalFlowWire').resolve()})
         core = next(t for t in package['targets'] if t['name'] == 'ExternalCore')
         self.assertEqual(core['dependencies'], [{'byName': ['PolicyCore', None]}])
         self.assertEqual({t['name'] for t in package['targets']}, {'ExternalCore', 'ExternalPreview', 'ExternalCoreTests'})
@@ -53,6 +54,8 @@ class ExternalContracts(unittest.TestCase):
         self.assertIn('model.detect(previewRules: false)', navigation)
         self.assertIn('NavigationSplitView', navigation)
         self.assertIn('Settings {', app)
+        self.assertIn('ExternalFlowBridgeModel', app)
+        self.assertIn('flowBridge.reload()', navigation)
 
     def test_all_native_sources_parse_for_mac(self):
         sources = sorted((PACKAGE / 'Sources/ExternalPreview').glob('*.swift'))
