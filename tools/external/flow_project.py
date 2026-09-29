@@ -40,6 +40,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         "CFBundleName": "$(PRODUCT_NAME)", "CFBundleDisplayName": "VPN-Splitter Flow Probe Extension",
         "CFBundlePackageType": "SYSX", "CFBundleVersion": "1", "CFBundleShortVersionString": "0.1",
         "LSMinimumSystemVersion": "26.0",
+        "NSSystemExtensionUsageDescription": "Validate the VPN-Splitter transparent proxy capability probe.",
         "NetworkExtension": {"NEProviderClasses": {
             "com.apple.networkextension.app-proxy": "ExternalFlowProvider.ExternalTransparentProbeProvider"
         }}

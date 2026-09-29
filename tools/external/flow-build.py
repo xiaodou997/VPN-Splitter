@@ -143,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
         if extension.name != EXT_ID + ".systemextension": raise ValueError("extension-filename")
         info = plistlib.loads((extension / "Contents/Info.plist").read_bytes())
         if info.get("CFBundleIdentifier") != EXT_ID: raise ValueError("extension-bundle-id")
+        usage = info.get("NSSystemExtensionUsageDescription")
+        if not isinstance(usage, str) or not usage.strip(): raise ValueError("extension-usage-description")
         classes = info.get("NetworkExtension", {}).get("NEProviderClasses", {})
         if classes.get("com.apple.networkextension.app-proxy") != "ExternalFlowProvider.ExternalTransparentProbeProvider":
             raise ValueError("provider-class")

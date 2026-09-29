@@ -135,7 +135,7 @@ Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加�
 - 嵌套扩展文件名与 bundle ID 对应。
 - App 与扩展均带 Apple 安全时间戳，以供公证服务验证。
 
-通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier 和公证状态，因此结果继续标为 `system_acceptance=NOT_RUN`。本机首次激活返回 `OSSystemExtensionErrorDomain#8`，系统日志出现公证检查错误；后续时间戳构建已完成，仍需提交 Apple 公证并重新验收。见 [原生激活尝试](evidence/ex-flow-01f-native-activation-attempt.md)。
+通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier、公证状态和扩展自身的 `NSSystemExtensionUsageDescription`，因此构建结果继续标为 `system_acceptance=NOT_RUN`。本机首次激活返回签名错误；首次公证后又查出扩展缺少 usage description。生成器与构建器现已修复，并对修复版重新公证；系统最终接受和 Provider 探针仍需真机复验。见 [原生激活尝试](evidence/ex-flow-01f-native-activation-attempt.md)。
 
 签名成功摘要升级为 `external-flow-build-v3`，并区分：
 

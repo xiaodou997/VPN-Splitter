@@ -73,6 +73,7 @@ class ExternalFlowContracts(unittest.TestCase):
             self.assertTrue((project / 'project.pbxproj').is_file())
             folder = project.parent
             info = plistlib.loads((folder / 'extension-Info.plist').read_bytes())
+            self.assertTrue(info['NSSystemExtensionUsageDescription'].strip())
             self.assertEqual(info['NetworkExtension']['NEProviderClasses']['com.apple.networkextension.app-proxy'],
                              'ExternalFlowProvider.ExternalTransparentProbeProvider')
             ent = plistlib.loads((folder / 'extension.entitlements').read_bytes())

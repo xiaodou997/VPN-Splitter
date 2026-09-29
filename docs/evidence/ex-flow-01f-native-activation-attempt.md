@@ -18,4 +18,10 @@
 - `stapler staple` / `stapler validate` 通过；`spctl --assess --type execute` 对 App 返回 `accepted`、`source=Notarized Developer ID`，同时报告本机 `override=security disabled`，因此不能把这一步单独当成默认 Gatekeeper 环境验收。嵌套扩展的 strict codesign 校验通过。已将旧 `/Applications` App 备份到 `.local/external/flow-prenotary-20260929.app`，并将已公证版本放入 `/Applications`，再次校验票据、`spctl` 与 strict codesign 通过。
 - 公证后系统再激活与 Provider 探针结果仍待现场验证，不能据此宣称 Flow Bypass 可用。
 
+## 首次公证后的系统校验与修复
+
+- 用户现场确认后重新提交激活，系统返回 `OSSystemExtensionErrorDomain#9`（本机 SDK：`OSSystemExtensionErrorValidationFailed`）。`sysextd` 已通过代码签名阶段，但在 `validating_by_category` 明确指出网络系统扩展缺少 `NSSystemExtensionUsageDescription`；暂存扩展被撤销，`systemextensionsctl list` 仍无本项目扩展。没有保存或启动 Transparent Proxy 配置。
+- 生成器原先只在主 App 的 `Info.plist` 写入该键；现已在扩展 `Info.plist` 补齐，构建器和合同测试都检查非空。`external-flow-test` Debug/Release 和合同测试通过；新 Developer ID 构建 `compile_link=PASS`，App 与扩展均严格验签和包含安全时间戳。
+- 修复版归档 SHA-256：`4c3f88d5dcbe1881da74a9d9445c74b35e5dafdaa7fb6314d547e62d838b1e6a`。Apple 公证提交 ID `69af7033-ceb5-4102-a014-8a41b74b3ed1` 返回 `Accepted`；票据已附加并验证。修复版已安装到 `/Applications`，旧公证版保留在 `.local/external/flow-notarized-before-usage-description.app`。新的系统激活、Provider message 和 VPN 共存结果仍待现场验证。
+
 没有关闭 SIP 或 Gatekeeper，也没有应用路由、DNS 或 Transparent Proxy 配置。原第三方 VPN 尚未开启；App ID/hostname 的真实可见性与 VPN 共存均未验证。
