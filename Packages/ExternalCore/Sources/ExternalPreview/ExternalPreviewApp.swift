@@ -72,6 +72,7 @@ struct ExternalPreviewApp: App {
     @StateObject private var model: ExternalModel
     @StateObject private var profiles: ExternalProfilesModel
     @StateObject private var helper: ExternalHelperModel
+    @State private var section: ExternalSidebarSection? = .overview
     init() {
         let network = ExternalModel()
         let documents = ExternalProfilesModel()
@@ -86,65 +87,56 @@ struct ExternalPreviewApp: App {
     }
     var body: some Scene {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("第三方 VPN · EX-INT-03C").font(.title2).bold()
-                    Text("原客户端负责连接；规则已扩展为 IP、域名和应用选择器。当前 Route Bypass 只执行纯 IP 方案，域名/应用等待 Flow Bypass。")
-                    HStack {
-                        Button("检测当前网络（只读）") { model.detect(previewRules: false) }.disabled(model.busy)
-                        Button("取消检测 / 清除结果") { model.cancel() }
-                    }
-                    Text(model.message).textSelection(.enabled)
-                    if let snapshot = model.observation {
-                        GroupBox("本次观察 · 非持续监测") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("IPv4 路由记录：\(snapshot.routes.count)；物理服务候选：\(snapshot.physicalPaths.count)")
-                                ForEach(Array(snapshot.physicalPaths.enumerated()), id: \.offset) { _, path in
-                                    Text("物理候选：\(path.interface) → 网关 \(path.gateway.description)")
-                                }
-                                Text("IPv4 隧道接口候选：" + snapshot.interfaces.filter { $0.isUp && $0.isTunnelCandidate }.map(\.name).joined(separator: ", "))
-                                Text("动态存储中的 IPv4 DNS 地址数：\(snapshot.observedDNSServers.count)。这不是完整 resolver 或 DNS 查询路径验证。")
-                            }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                        }
-                    }
-                    Divider()
-                    ExternalProfilesPanel(profiles: profiles)
-                    Text("Bypass：保留原 VPN 全局模式，只预览 DIRECT 例外；不是默认直连，也不是按应用分流。")
-                    Button("重新检测并预览直连规则") {
-                        model.rules = profiles.enabledRules
-                        model.detect(previewRules: true)
-                    }
-                        .disabled(model.busy || profiles.busy || profiles.editor.mustReload || profiles.hasUnsavedChanges || model.rules.isEmpty)
-                    if let preview = model.preview {
-                        GroupBox("拟议变更 · NOT_APPLIED") {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("VPN 路由线索：\(preview.topology.pattern.rawValue) / \(preview.topology.tunnelInterface)")
-                                ForEach(preview.proposals) { item in
-                                    Text("\(item.destination.description) → \(item.gateway.description) / \(item.interface) · " +
-                                        (item.disposition == .wouldAdd ? "拟增加，未执行" : "已有直连记录，不认领、不删除"))
-                                }
-                                Text("规则 \(preview.ruleEvaluations.count) 条 → 例外 \(preview.proposals.count) 条；按已有 PolicyCore 计算，重叠规则可能合并。")
-                            }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                        }
-                    }
-                    ExternalHelperPanel(helper: helper, profiles: profiles)
-                    Text(ExternalCore.ExternalPreview.boundary).font(.footnote)
-                    Text("原始网络观察只留在内存，不上传或自动保存。网络变化后必须重新检测；结果最多显示 30 秒。")
-                        .font(.footnote)
-                }.padding(24)
-            }.frame(minWidth: 880, minHeight: 700)
-                .onChange(of: profiles.changeID, initial: true) { _, _ in
-                    // Selection, editing, save and reload invalidate all old observations.
-                    model.cancel(); helper.invalidate(); model.rules = profiles.enabledRules
+            ExternalRootView(model: model, profiles: profiles, helper: helper, selection: $section)
+                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
+                    model.cancel(); helper.invalidate()
                 }
-                .onChange(of: profiles.batchText) { _, _ in model.cancel(); helper.invalidate() }
-                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in model.cancel(); helper.invalidate() }
-                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in model.cancel(); helper.invalidate() }
-        }.commands {
+                .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+                    model.cancel(); helper.invalidate()
+                }
+        }
+        .commands {
+            CommandMenu("导航") {
+                Button("概览") { section = .overview }.keyboardShortcut("1", modifiers: .command)
+                Button("规则") { section = .rules }.keyboardShortcut("2", modifiers: .command)
+                Button("分流会话") { section = .session }.keyboardShortcut("3", modifiers: .command)
+                Button("恢复") { section = .recovery }.keyboardShortcut("4", modifiers: .command)
+                Button("Flow 实验") { section = .flow }.keyboardShortcut("5", modifiers: .command)
+            }
+            CommandMenu("规则") {
+                Button("新建方案") { section = .rules; profiles.newProfile() }
+                    .keyboardShortcut("n", modifiers: [.command, .shift])
+                Button("保存方案") { profiles.save() }
+                    .keyboardShortcut("s", modifiers: .command)
+                    .disabled(!profiles.canSave)
+                Button("重新载入方案") { profiles.reload() }
+                    .disabled(profiles.busy)
+            }
+            CommandMenu("分流") {
+                Button("检测当前网络") { section = .session; model.detect(previewRules: false) }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.busy)
+                Button("预览当前规则") {
+                    section = .session
+                    model.rules = profiles.enabledRules
+                    model.detect(previewRules: true)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(model.busy || profiles.busy || profiles.editor.mustReload ||
+                          profiles.hasUnsavedChanges || profiles.enabledRules.isEmpty)
+                Divider()
+                Button("停止 / 撤销当前会话") { helper.stop() }
+                    .keyboardShortcut(".", modifiers: .command)
+                Button("核查恢复状态") { section = .recovery; helper.auditRecovery() }
+                    .disabled(helper.busy)
+            }
             CommandGroup(replacing: .appTermination) {
-                Button("退出 External 开发预览") { NSApplication.shared.terminate(nil) }
+                Button("退出 VPN-Splitter") { NSApplication.shared.terminate(nil) }
                     .keyboardShortcut("q")
             }
+        }
+        Settings {
+            ExternalSettingsView(helper: helper)
         }
     }
 }

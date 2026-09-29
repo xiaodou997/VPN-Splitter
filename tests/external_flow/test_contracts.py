@@ -22,14 +22,37 @@ class ExternalFlowContracts(unittest.TestCase):
 
     def test_builder_never_installs_or_executes(self):
         path = ROOT / 'tools/external/flow-build.py'
-        ast.parse(path.read_text())
-        source = path.read_text()
+        project = ROOT / 'tools/external/flow_project.py'
+        ast.parse(path.read_text()); ast.parse(project.read_text())
+        source = path.read_text() + project.read_text()
         for token in ['codesign', 'systemextensionsctl', 'SMAppService', '/usr/bin/open', 'sudo', 'launchctl']:
             self.assertNotIn(token, source)
+        self.assertIn('wrapper.system-extension', (ROOT / 'tools/s1/generate-project.py').read_text())
+        self.assertIn('com.apple.networkextension.app-proxy', project.read_text())
+        self.assertIn('ExternalFlowProvider.ExternalTransparentProbeProvider', project.read_text())
+        self.assertIn('CODE_SIGNING_ALLOWED=NO', path.read_text())
         if sys.platform != 'darwin':
             p = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=10)
             self.assertEqual(p.returncode, 69)
             self.assertIn('execution=NOT_RUN', p.stderr)
+
+    def test_generated_systemextension_shape(self):
+        import importlib.util, tempfile, plistlib
+        spec = importlib.util.spec_from_file_location('flow_project', ROOT / 'tools/external/flow_project.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix='flow-project-') as directory:
+            project = module.generate(ROOT, Path(directory))
+            self.assertTrue((project / 'project.pbxproj').is_file())
+            folder = project.parent
+            info = plistlib.loads((folder / 'extension-Info.plist').read_bytes())
+            self.assertEqual(info['NetworkExtension']['NEProviderClasses']['com.apple.networkextension.app-proxy'],
+                             'ExternalFlowProvider.ExternalTransparentProbeProvider')
+            ent = plistlib.loads((folder / 'extension.entitlements').read_bytes())
+            self.assertIn('app-proxy-provider', ent['com.apple.developer.networking.networkextension'])
+            text = (project / 'project.pbxproj').read_text()
+            self.assertIn('VPN-Splitter-FlowProbe', text)
+            self.assertIn('FlowProbeExtension', text)
+            self.assertIn('wrapper.system-extension', text)
 
     def test_provider_source_parses_for_mac(self):
         source = PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift'

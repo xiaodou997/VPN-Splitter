@@ -131,15 +131,20 @@ class ProfileAppTests(unittest.TestCase):
         model = (UI / 'ExternalProfilesModel.swift').read_text()
         panel = (UI / 'ExternalProfilesPanel.swift').read_text()
         app = (UI / 'ExternalPreviewApp.swift').read_text()
+        navigation = (UI / 'ExternalNavigationView.swift').read_text()
         for token in ['profiles.select(', 'profiles.save()', 'profiles.addBatch()', 'profiles.moveRule(', 'profiles.deleteSelected()']:
             self.assertIn(token,panel)
-        for token in ['ExternalProfilesPanel(profiles: profiles)', 'model.cancel(); model.rules = profiles.enabledRules', 'profiles.hasUnsavedChanges', 'ExternalTerminationDelegate.shouldTerminate']:
-            self.assertIn(token,app)
+        combined = app + navigation
+        for token in ['ExternalProfilesPanel(profiles: profiles)', 'model.cancel(); helper.invalidate(); model.rules = profiles.enabledRules',
+                      'profiles.hasUnsavedChanges', 'ExternalTerminationDelegate.shouldTerminate']:
+            self.assertIn(token,combined)
+        self.assertIn('CommandMenu("规则")', app)
+        self.assertIn('case .rules:', navigation)
         for token in ['ExternalSystemSnapshotReader', 'NativeExternalRouteDriver', 'sudo', 'NSXPCConnection', 'UserDefaults', 'SecItem']:
             self.assertNotIn(token,model)
         self.assertIn('expectedRevision: before.workspace.revision',model)
         self.assertIn('editor.failed(failure)',model)
-        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
+        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalNavigationView.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
         self.assertEqual(parsed.returncode,0,parsed.stdout+parsed.stderr)
 
     def compile_run(self, optimization):

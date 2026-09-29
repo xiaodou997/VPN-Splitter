@@ -14,6 +14,8 @@
 
 WG-INT-10 正式集成 unsigned 已有 USER_REPORTED PASS，见 docs/evidence/wg-int-10-user-native-build.md；不是可用 VPN/签名/双出口验收。已有产物、48eee07 和 S0 单目标路径证据保留，不要求重做。无需先执行 provider-build --sign 才能推进 External。
 
+External UI 采用侧边栏分区：概览、规则、分流会话、恢复、Flow 实验；系统 Helper 注册放入原生 Settings，常用动作进入规则/分流菜单。后续新增功能优先放入对应页面或菜单，不恢复单一长 ScrollView 堆叠工程状态。
+
 EX-INT-01 在 Packages/ExternalCore 提供实际 macOS 只读采集、IPv4 路由形态识别和 PolicyCore DIRECT 预览。dev.sh external-run 打开独立、仅 ad-hoc 的 External 开发预览；external-build 只编译；external-test 是离线回归，无需 Go 或开发签名。原 run/test、WG/S1 源码和权限保持不变。不要把新预览说成已集成到 LocalDev 或已能应用分流。
 
 当前交付已推进至 EX-INT-03D 与 EX-FLOW-01：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；FLOW-01 只验证 Transparent Proxy 的来源应用/hostname 元数据，provider 必须默认放行且不复制流量。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。

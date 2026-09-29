@@ -23,7 +23,6 @@ private final class ProbeCounters: @unchecked Sendable {
 /// FLOW-01 capability probe only. It never opens a replacement remote connection,
 /// never copies bytes, and always returns false so transparent-proxy flows continue
 /// to their original ultimate destination according to system networking.
-@objc(ExternalTransparentProbeProvider)
 public final class ExternalTransparentProbeProvider: NETransparentProxyProvider {
     private let counters = ProbeCounters()
 

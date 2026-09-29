@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-29 / EX-INT-03D Recovery UI + EX-FLOW-01 Transparent Proxy 能力探针。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-29 / External 导航重构 + EX-INT-03D Recovery UI + EX-FLOW-01B System Extension 构建骨架。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -11,8 +11,9 @@
 | EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
 | EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |
-| EX-FLOW-01 | 新 ExternalFlow 包：first-match flow 规则核心 + NETransparentProxyProvider 只读元数据探针骨架；provider 对所有 flow 返回 false，不复制/重定向流量。App signing ID/remoteHostname 的实际可见性、系统扩展签名/运行仍待 Mac 验证 |
-| External 下一主线 | 先完成 03D/03B 的 Mac 原生构建与系统授权；FLOW-01 真机验证来源 App/hostname/TCP 后，再实现 FLOW-02 的物理接口 DIRECT 流复制和 UDP/QUIC。Route Bypass 继续作为 IP 兼容路径 |
+| EX-FLOW-01/01B | ExternalFlow first-match 核心 + TCP pass-through Transparent Proxy 探针；新增 unsigned App + .systemextension 隔离 Xcode 构建骨架。provider 始终返回 false，不复制/重定向流量；签名/激活及 App ID/hostname 可见性仍待 Mac 验证 |
+| External UI | 主窗口改为概览/规则/分流会话/恢复/Flow 实验侧边栏；Helper 注册放到原生 Settings；新增导航、规则、分流菜单与快捷键，不再把工程信息堆在一个 ScrollView |
+| External 下一主线 | 先完成新导航与 03D/03B 的 Mac 原生构建；FLOW-01B unsigned bundle 编译通过后再进入签名/激活，验证来源 App/hostname/TCP；通过后实现 FLOW-02 物理接口 DIRECT 流复制和 UDP/QUIC |
 | OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
@@ -28,7 +29,7 @@ External 首轮保持原规范：兼容的路由型全局 VPN + 指定 IPv4 DIRE
 
 已有 [WG 原生构建证据](evidence/wg-int-10-user-native-build.md)、[FIX-01](evidence/wg-int-10-fix-01-build-blockers.md)、[WG-INT-10](evidence/wg-int-10-provider-runtime.md)、[S0 样本](evidence/s0-single-target-user-result.md)与 [需求规范](requirements-v0.1.md)保留。下面的阶段退出条件是验收约束，不再作为禁止提前开展 External 开发的排队锁。main 统一非强制交付，不发更新 ZIP，不删除本机缓存、锁或历史证据。
 
-EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、IPv4 规则及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
+EX-INT-03A 继续使用 `external-run`，不增加另一套运行命令。启动只自动载入本机规则文件；网络检测仍需按钮触发。规则文件只含名称、UUID、版本、类型化 IP/域名/应用选择器及停用状态，不含网关/接口快照、密钥、回执或权限。详见 [03A 存储决策](adr/ADR-EX-INT-03A-profile-workspace.md)与[代码/验证证据](evidence/ex-int-03a-profile-workspace.md)。原 LocalDev、前台执行器与恢复标记保持不变。
 
 EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍是不能授权的 ad-hoc 预览。`external-helper-test` 仅离线验证，`external-helper-build` 构建独立控制 App 和内嵌 Helper，默认不授权、不安装、不运行。只有显式本机身份签名并经系统批准后才能连接；真实写入另需编译时 route-trial 选择和每次提案确认。见 [Helper 操作](external-helper.md)、[03B 决策](adr/ADR-EX-INT-03B-authenticated-helper.md)和[本轮证据](evidence/ex-int-03b-authenticated-helper.md)。旧恢复标记不会被注册、连接或构建清除。
 
@@ -130,7 +131,7 @@ EX-INT-03B 为既有页面增加 Helper 操作面板，普通 `external-run` 仍
 
 一个任务完成需代码/文档一致、测试可重复、错误/权限/恢复路径覆盖、无秘密、依赖许可记录齐全、诊断可解释、未测项明确。影响系统网络的变更额外提供前后状态及撤销证据。
 
-新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：推进 External 的受限执行、撤销和实际场景验证，OpenVPN 导入/兼容性检查提前；WG 原生构建成功证据保留，签名暂缓，不要求为本次开发重跑。不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批构建通过宣告 S1–S5 通过。
+新依赖、数据面机制、默认出口、DNS 隐私行为或保证等级变化必须先更新 ADR。当前可执行项：先把 External Route/Flow Bypass、恢复和实际场景做到基本可用；WG 原生构建成功证据保留，External MVP 后补最小真机闭环；OpenVPN 暂列 Backlog。不以 LocalDev 完善或组件数量代替实际双出口。签名在首次真实隧道前恢复，但不是唯一剩余工作。S0 收尾独立保留，不要求重做已完成单目标实验。不 Fork 整个参考应用，不以本批构建通过宣告 S1–S5 通过。
 
 ## main 工作流与 S1-01 交付
 

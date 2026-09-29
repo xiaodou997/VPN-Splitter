@@ -41,14 +41,18 @@ class ExternalContracts(unittest.TestCase):
         self.assertGreaterEqual(source.count('readRoutes()'), 3)  # declaration + two observations
 
     def test_no_automatic_capture_no_secret_persistence_and_stale_ui_is_cleared(self):
-        source = (PACKAGE / 'Sources/ExternalPreview/ExternalPreviewApp.swift').read_text()
-        for token in ['.onAppear', '.task', 'UserDefaults', '@AppStorage', 'write(to:', 'NSPasteboard']:
+        app = (PACKAGE / 'Sources/ExternalPreview/ExternalPreviewApp.swift').read_text()
+        navigation = (PACKAGE / 'Sources/ExternalPreview/ExternalNavigationView.swift').read_text()
+        source = app + navigation
+        for token in ['.onAppear', '.task {', 'UserDefaults', '@AppStorage', 'write(to:', 'NSPasteboard']:
             self.assertNotIn(token, source)
         for token in ['guard token == id, !Task.isCancelled', 'preview = nil; observation = nil',
                       'guard token == id, observation != nil', 'self.preview = nil; self.observation = nil', 'didSet']:
-            self.assertIn(token, source)
-        self.assertIn('model.detect(previewRules: true)', source)
-        self.assertIn('model.detect(previewRules: false)', source)
+            self.assertIn(token, app)
+        self.assertIn('model.detect(previewRules: true)', navigation)
+        self.assertIn('model.detect(previewRules: false)', navigation)
+        self.assertIn('NavigationSplitView', navigation)
+        self.assertIn('Settings {', app)
 
     def test_all_native_sources_parse_for_mac(self):
         sources = sorted((PACKAGE / 'Sources/ExternalPreview').glob('*.swift'))
