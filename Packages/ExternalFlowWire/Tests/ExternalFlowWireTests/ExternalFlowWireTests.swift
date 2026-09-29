@@ -26,13 +26,15 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = ExternalFlowProbeSnapshotStore(directory: root.appendingPathComponent("bridge"))
-        XCTAssertNil(try await store.load())
+        let initial = try await store.load()
+        XCTAssertNil(initial)
         var report = ExternalFlowProbeReport(); report.total = 2; report.tcp = 2
         report.withRemoteHostname = 1
         let value = ExternalFlowProbeSnapshot(configurationCount: 1, configurationEnabled: true,
                                                connectionStatus: "connected", providerReport: report)
         try await store.save(value)
-        let loaded = try XCTUnwrap(try await store.load())
+        let reloaded = try await store.load()
+        let loaded = try XCTUnwrap(reloaded)
         XCTAssertEqual(loaded, value)
         let data = try Data(contentsOf: root.appendingPathComponent("bridge/snapshot.json"))
         let text = String(decoding: data, as: UTF8.self)
