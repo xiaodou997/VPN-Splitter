@@ -14,7 +14,7 @@
 新增 `Packages/ExternalFlow`：
 
 - ExternalFlowCore：将 Rule V2 编译成 flow first-match 判定。APP 规则必须额外绑定稳定 signing identifier；用户输入的软件名不直接成为执行身份。
-- ExternalFlowProvider：`ExternalTransparentProbeProvider`。只设置 outbound Transparent Proxy 匹配、观察 flow metadata、累计脱敏计数，并始终返回 false。
+- ExternalFlowProvider：`ExternalTransparentProbeProvider`。首批只设置 outbound TCP Transparent Proxy 匹配、观察 flow metadata、累计脱敏计数，并始终返回 false；UDP/QUIC 留待后续单独验证。
 - provider message `probe-report-v1` 只返回计数，不含真实 App ID、hostname、IP、端口或流量。
 - 明确没有 `NWConnection`、flow open/read/write、数据复制或 DIRECT 出站。
 
