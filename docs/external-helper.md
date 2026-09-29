@@ -30,6 +30,8 @@ route_trial=DISABLED
 
 准备好本机可用的 Apple 代码签名身份时，构建器接受成对的 `--identity` 与 `--team-id`。两个 ID/Team 都会独立核对；不输出私钥、profile 或 VPN 配置。签名不是公证或系统批准，不能把构建 PASS 当成可发布。
 
+Developer ID 模式要求主 App 和内嵌 Helper 均带 Apple 安全时间戳；构建后会拒绝缺失时间戳的产物。本机一份签名候选的 Apple 公证与票据验证已单独完成，见 [Helper 签名/公证证据](evidence/ex-int-03b-helper-signing-notarization.md)。默认 ad-hoc 构建没有系统服务授权能力。
+
 ```text
 dev.sh external-helper-build --identity <本机签名身份> --team-id <10位团队ID>
 ```

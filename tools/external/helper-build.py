@@ -99,13 +99,20 @@ def main() -> int:
             daemon = app / 'Contents/Library/LaunchDaemons' / (SERVICE + '.plist')
             daemon.parent.mkdir(parents=True, mode=0o700); daemon.write_bytes(plistlib.dumps(launch_plist()))
             for target, identifier in [(destinations[1], HELPER_ID), (app, APP_ID)]:
-                command = ['/usr/bin/codesign', '--force', '--sign', args.identity or '-', '--timestamp=none',
+                command = ['/usr/bin/codesign', '--force', '--sign', args.identity or '-',
+                           '--timestamp' if args.identity else '--timestamp=none',
                            '--options', 'runtime', '--identifier', identifier, str(target)]
                 commands = [command, ['/usr/bin/codesign', '--verify', '--strict', str(target)]]
                 if args.identity: commands.append(['/usr/bin/codesign', '--verify', '--strict', '-R', requirement(identifier, args.team_id), str(target)])
                 for command in commands:
                     log.write(('\n$ ' + shlex.join(command) + '\n').encode()); log.flush()
                     subprocess.run(command, check=True, timeout=60, stdout=log, stderr=subprocess.STDOUT)
+                if args.identity:
+                    details = subprocess.check_output(['/usr/bin/codesign', '-dv', '--verbose=4', str(target)],
+                                                      stderr=subprocess.STDOUT, text=True, timeout=30)
+                    if not any(line.startswith('Timestamp=') and len(line) > len('Timestamp=')
+                               for line in details.splitlines()):
+                        raise ValueError('secure-timestamp')
         hashes = '\n'.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + str(p.relative_to(app)) for p in destinations)
         (run / 'artifacts.sha256').write_text(hashes + '\n')
         print('schema=external-helper-build-v1\ncompile=PASS\nexecution=NOT_RUN\nnetwork_settings=NOT_APPLIED\nhelper_installation=NOT_REQUESTED')

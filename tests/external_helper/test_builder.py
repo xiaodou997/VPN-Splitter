@@ -51,6 +51,7 @@ class HelperBuildTests(unittest.TestCase):
                 if '--show-bin-path' in args:
                     return str(root / 'synthetic-bin' / args[args.index('--product') + 1]) + '\n'
                 if 'lipo' in args: return 'arm64\n'
+                if '-dv' in args: return '' if fail == 'timestamp' else 'Timestamp=Sep 29, 2026 at 20:14:38\n'
                 raise AssertionError('unexpected tool: ' + str(args))
             def codesign(args, **kwargs):
                 self.assertEqual(args[0], '/usr/bin/codesign')
@@ -86,6 +87,7 @@ class HelperBuildTests(unittest.TestCase):
                     requirements = [c for c in commands if '-R' in c]
                     self.assertEqual(len(requirements), 2)
                     self.assertTrue(all('ABCDE12345' in c[c.index('-R') + 1] for c in requirements))
+                    self.assertEqual(sum('--timestamp' in c for c in commands), 2)
                 else:
                     self.assertIn('route_trial=DISABLED', stdout.getvalue())
                     self.assertIn('signing=ADHOC_NOT_AUTHORIZED', stdout.getvalue())
@@ -96,6 +98,7 @@ class HelperBuildTests(unittest.TestCase):
     def test_signed_trial_checks_both_identities_without_installing(self): self.run_builder(signed=True)
     def test_sign_failure_never_publishes_pass(self): self.run_builder(fail='--sign')
     def test_verify_failure_never_publishes_pass(self): self.run_builder(signed=True, fail='--verify')
+    def test_missing_secure_timestamp_never_publishes_pass(self): self.run_builder(signed=True, fail='timestamp')
     def test_root_and_invalid_options_fail_before_tools(self):
         b = builder()
         for argv, root in [(['x', '--route-trial'], False), (['x', '--identity', '-'], False), (['x', '--apply'], False), (['x'], True)]:
