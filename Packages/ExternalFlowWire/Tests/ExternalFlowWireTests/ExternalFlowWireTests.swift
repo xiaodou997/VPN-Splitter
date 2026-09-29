@@ -20,6 +20,31 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
             configurationEnabled: false, connectionStatus: "invalid status", providerReport: nil).validated())
     }
 
+    func testProviderMessageStatusMustMatchReportPresence() throws {
+        var report = ExternalFlowProbeReport()
+        report.total = 1; report.tcp = 1
+        XCTAssertNoThrow(try ExternalFlowProbeSnapshot(
+            configurationCount: 1, configurationEnabled: true,
+            connectionStatus: "connected", providerMessageStatus: "pass",
+            providerReport: report).validated())
+        XCTAssertThrowsError(try ExternalFlowProbeSnapshot(
+            configurationCount: 1, configurationEnabled: true,
+            connectionStatus: "connected", providerMessageStatus: "send_failed",
+            providerReport: report).validated())
+        XCTAssertThrowsError(try ExternalFlowProbeSnapshot(
+            configurationCount: 1, configurationEnabled: true,
+            connectionStatus: "connected", providerMessageStatus: "pass",
+            providerReport: nil).validated())
+        XCTAssertNoThrow(try ExternalFlowProbeSnapshot(
+            configurationCount: 1, configurationEnabled: false,
+            connectionStatus: "disconnected", providerMessageStatus: "not_connected",
+            providerReport: nil).validated())
+        XCTAssertThrowsError(try ExternalFlowProbeSnapshot(
+            configurationCount: 1, configurationEnabled: false,
+            connectionStatus: "disconnected", providerMessageStatus: "mystery",
+            providerReport: nil).validated())
+    }
+
     func testRoundtripStoreUsesCountsOnly() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "flow-wire-" + UUID().uuidString, isDirectory: true)
