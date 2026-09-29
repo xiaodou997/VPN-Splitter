@@ -114,6 +114,14 @@ HARNESS = r'''
             model.editRule(id,text:"invalid",enabled:false); model.save()
             require(model.hasUnsavedChanges && model.editor.workspace.profiles.isEmpty,"invalid disabled rule saved")
             require(model.enabledRules.isEmpty,"invalid rules presented for preview")
+        case "application-binding":
+            model.newProfile(); model.editName("apps")
+            model.batchText = "APP,Telegram"; model.addBatch()
+            let id = model.editor.draft!.rules[0].id
+            model.bindApplication(id, app: .init(displayName:"Telegram", signingIdentifier:"org.telegram.desktop", bundleIdentifier:"org.telegram.desktop"))
+            require(model.editor.draft!.rules[0].applicationIdentifier == "org.telegram.desktop", "app identity not bound")
+            model.editRule(id, text:"Telegram Beta")
+            require(model.editor.draft!.rules[0].applicationIdentifier == nil, "editing display name retained stale app identity")
         default: fatalError("unknown scenario")
         }
         print("external-profiles-app=PASS documents_model_store=ACTUAL dialogs=TEST_DOUBLES network=NOT_READ")
@@ -173,7 +181,7 @@ class ProfileAppTests(unittest.TestCase):
             run(common+['-emit-library','-emit-module','-module-name','ExternalCore','-I',temp,'-L',temp,'-lPolicyCore',*map(str,sources),'-emit-module-path',str(p/'ExternalCore.swiftmodule'),'-o',str(p/('libExternalCore'+ext))])
             (p/'main.swift').write_text(PREAMBLE+'\n'+actual_model()+'\n'+HARNESS)
             run(common+['-parse-as-library','-I',temp,'-L',temp,'-lExternalCore','-lPolicyCore','-Xlinker','-rpath','-Xlinker',temp,str(p/'main.swift'),'-o',str(p/'harness')])
-            for scenario in ['roundtrip','discard-and-pending-input','stale-save','delete-and-selection','invalid-batch-and-rule']:
+            for scenario in ['roundtrip','discard-and-pending-input','stale-save','delete-and-selection','invalid-batch-and-rule','application-binding']:
                 with self.subTest(scenario=scenario):
                     result = run([str(p/'harness'),scenario],timeout=15)
                     self.assertIn('external-profiles-app=PASS',result.stdout)
