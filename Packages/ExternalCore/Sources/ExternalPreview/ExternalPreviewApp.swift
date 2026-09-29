@@ -72,7 +72,7 @@ struct ExternalPreviewApp: App {
     @StateObject private var model: ExternalModel
     @StateObject private var profiles: ExternalProfilesModel
     @StateObject private var helper: ExternalHelperModel
-    @State private var section: ExternalSidebarSection = .overview
+    @State private var section: ExternalSidebarSection? = .overview
     init() {
         let network = ExternalModel()
         let documents = ExternalProfilesModel()
@@ -97,11 +97,11 @@ struct ExternalPreviewApp: App {
         }
         .commands {
             CommandMenu("导航") {
-                ForEach(ExternalSidebarSection.allCases) { item in
-                    Button(item.title) { section = item }
-                        .keyboardShortcut(KeyEquivalent(Character(String(ExternalSidebarSection.allCases.firstIndex(of: item)! + 1))),
-                                          modifiers: .command)
-                }
+                Button("概览") { section = .overview }.keyboardShortcut("1", modifiers: .command)
+                Button("规则") { section = .rules }.keyboardShortcut("2", modifiers: .command)
+                Button("分流会话") { section = .session }.keyboardShortcut("3", modifiers: .command)
+                Button("恢复") { section = .recovery }.keyboardShortcut("4", modifiers: .command)
+                Button("Flow 实验") { section = .flow }.keyboardShortcut("5", modifiers: .command)
             }
             CommandMenu("规则") {
                 Button("新建方案") { section = .rules; profiles.newProfile() }
@@ -139,6 +139,7 @@ struct ExternalPreviewApp: App {
             ExternalSettingsView(helper: helper)
         }
     }
+}
 #else
 import Foundation
 @main
