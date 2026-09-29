@@ -2,6 +2,7 @@
 import Foundation
 import ExternalCore
 import PolicyCore
+import ExternalFlowWire
 
 public enum ExternalFlowCompileError: Error, Equatable, Sendable {
     case invalidProfile
@@ -117,18 +118,4 @@ public struct ExternalFlowPolicy: Sendable {
                 byte == 45 || byte == 46 || byte == 95
         }
     }
-}
-
-public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
-    public static let schema = "external-flow-probe-v1"
-    public var format = Self.schema
-    public var total = 0
-    public var tcp = 0
-    public var udp = 0
-    public var withSourceSigningIdentifier = 0
-    public var withRemoteHostname = 0
-    public var withRemoteEndpoint = 0
-    public init() {}
-    public var appIdentityObservable: Bool { total > 0 && withSourceSigningIdentifier > 0 }
-    public var hostnameObservable: Bool { total > 0 && withRemoteHostname > 0 }
 }
