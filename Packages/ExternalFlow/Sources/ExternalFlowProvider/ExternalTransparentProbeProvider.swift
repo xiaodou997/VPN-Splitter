@@ -15,8 +15,7 @@ private final class ProbeCounters: @unchecked Sendable {
         if flow is NEAppProxyUDPFlow { report.udp += 1 }
         if !flow.metaData.sourceAppSigningIdentifier.isEmpty { report.withSourceSigningIdentifier += 1 }
         if flow.remoteHostname != nil { report.withRemoteHostname += 1 }
-        if (flow as? NEAppProxyTCPFlow)?.remoteFlowEndpoint != nil { report.withRemoteEndpoint += 1 }
-        if flow is NEAppProxyUDPFlow { report.withRemoteEndpoint += 1 }
+        if flow is NEAppProxyTCPFlow { report.withRemoteEndpoint += 1 }
     }
     func snapshot() -> ExternalFlowProbeReport { lock.lock(); defer { lock.unlock() }; return report }
 }
