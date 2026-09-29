@@ -48,11 +48,25 @@ class ExternalFlowContracts(unittest.TestCase):
             self.assertEqual(info['NetworkExtension']['NEProviderClasses']['com.apple.networkextension.app-proxy'],
                              'ExternalFlowProvider.ExternalTransparentProbeProvider')
             ent = plistlib.loads((folder / 'extension.entitlements').read_bytes())
-            self.assertIn('app-proxy-provider', ent['com.apple.developer.networking.networkextension'])
+            self.assertIn('app-proxy-provider-systemextension', ent['com.apple.developer.networking.networkextension'])
             text = (project / 'project.pbxproj').read_text()
             self.assertIn('VPN-Splitter-FlowProbe', text)
             self.assertIn('FlowProbeExtension', text)
             self.assertIn('wrapper.system-extension', text)
+
+    def test_flow_probe_control_is_explicit_and_not_automatic(self):
+        controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
+        app = (ROOT / 'integrations/external-flow/FlowProbeApp.swift').read_text()
+        project = (ROOT / 'tools/external/flow_project.py').read_text()
+        for token in ['OSSystemExtensionRequest.activationRequest', 'NETransparentProxyManager.loadAllFromPreferences',
+                      'saveToPreferences()', 'startVPNTunnel()', 'stopVPNTunnel()']:
+            self.assertIn(token, controller)
+        for token in ['activateExtension()', 'saveProbeConfiguration()', 'startProbe()', 'stopProbe()']:
+            self.assertIn(token, app)
+        self.assertNotIn('.task { control.', app)
+        self.assertNotIn('.onAppear', app)
+        self.assertIn('FlowProbeController.swift', project)
+        self.assertIn('app-proxy-provider-systemextension', project)
 
     def test_provider_source_parses_for_mac(self):
         source = PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift'
