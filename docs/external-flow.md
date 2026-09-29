@@ -96,6 +96,57 @@ Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加�
 
 主程序 Flow 页面不会直接访问 `NETransparentProxyManager`；点击“读取最新本机报告”只读取快照，并对超过 5 分钟的结果标记为旧报告。
 
+## FLOW-01E：签名构建与 round-trip 诊断
+
+默认 `external-flow-build` 仍是 unsigned、只构建不安装。需要进入真实 System Extension 联调时，先执行只读库存检查：
+
+```bash
+/bin/bash dev.sh external-flow-signing-preflight --team-id <10位TeamID>
+```
+
+该命令只读取 `security find-identity` 和已安装 provisioning profile，筛选：
+
+- Developer ID Application identity；
+- Flow Probe App bundle ID 对应的 profile；
+- Flow Probe Extension bundle ID 对应的 profile；
+- Team ID 一致；
+- profile entitlement 包含 `app-proxy-provider-systemextension`。
+
+它不导入/删除 profile、不修改钥匙串、不签名、不改网络。
+
+库存齐备后，签名构建显式要求四项：
+
+```bash
+/bin/bash dev.sh external-flow-build --sign \
+  --identity "<Developer ID Application identity>" \
+  --team-id "<TeamID>" \
+  --app-profile "<Flow Probe App profile 名称>" \
+  --extension-profile "<Flow Probe Extension profile 名称>"
+```
+
+签名模式使用 DeveloperID configuration。Xcode 成功后构建器还会单独验证主 App 和嵌套 systemextension：
+
+- exact bundle identifier；
+- exact TeamIdentifier；
+- `codesign --verify --strict`；
+- 签名中的 Network Extension entitlement 含 `app-proxy-provider-systemextension`；
+- 主 App 签名含 `com.apple.developer.system-extension.install=true`；
+- extension 不得带 system-extension install entitlement；
+- 嵌套扩展文件名与 bundle ID 对应。
+
+通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement 和 extension identifier，因此结果继续标为 `system_acceptance=NOT_RUN`。
+
+签名成功摘要升级为 `external-flow-build-v3`，并区分：
+
+```text
+signing=LOCAL_DEVELOPER_ID_VERIFIED
+system_acceptance=NOT_RUN
+provider_roundtrip=NOT_RUN
+flow_copying=NOT_IMPLEMENTED
+```
+
+FLOW-01E 同时把 provider message 结果细分为 `pass / not_connected / unsupported_session / no_response / send_failed / invalid_response`。只有 `pass` 允许携带 provider report，主程序 Flow 页面直接显示该状态。
+
 ## 下一阶段
 
 FLOW-02 才研究真正的 DIRECT flow copying：为匹配流建立新的远端连接，要求当前物理接口，并完成 TCP 数据双向复制；随后单独验证 UDP/QUIC、DNS、睡眠/切网、VPN 重连和循环避免。任何 requiredInterface/来源身份/hostname 能力无法稳定验证，都必须保留为不可用，而不是退化成全局 IP 路由。
