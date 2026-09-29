@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-29 / EX-FLOW-01D 主程序脱敏报告桥。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-29 / EX-FLOW-01E Developer ID 签名候选与 provider round-trip 诊断。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -11,9 +11,9 @@
 | EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
 | EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |
-| EX-FLOW-01/01B/01C/01D | first-match 核心 + TCP pass-through provider + unsigned App/.systemextension + 显式控制器；01D 新增 provider message → Probe App → 0600 脱敏本机快照 → 主程序 Flow 页面。主程序不控制 Probe preferences；签名/激活及 App ID/hostname 真机可见性仍待验证 |
+| EX-FLOW-01A–01E | first-match 核心 + TCP pass-through provider + App/.systemextension + 显式控制器 + 脱敏报告桥；01E 新增只读签名库存、显式 Developer ID/profile 构建、Team/entitlement 二次验签和 provider round-trip 状态细分。安装/激活及 App ID/hostname 真机可见性仍待验证 |
 | External UI | 主窗口为概览/规则/分流会话/恢复/Flow 实验侧边栏；Helper 注册放到 Settings；APPLICATION 规则新增本机 App 模糊搜索/选择，保存显示名 + Signing ID，不保存路径 |
-| External 下一主线 | 集中做 Mac 原生构建：新导航/APP 选择器、03D Helper、FLOW-01C/01D App+sysex/报告桥。随后准备 Flow Probe 签名/激活并观察 App ID/hostname/TCP；通过后才进入 FLOW-02 物理接口 DIRECT 流复制和 UDP/QUIC |
+| External 下一主线 | 用 Mac 集中跑新导航/APP 选择器、03D Helper、FLOW-01E unsigned 编译；签名库存齐备后做 Developer ID build，再把签名 App 放入 /Applications 进行显式 extension activation / Transparent Proxy / provider message 真实联调。只有 round-trip 与 App ID/hostname 可见性通过后才进入 FLOW-02 |
 | OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |

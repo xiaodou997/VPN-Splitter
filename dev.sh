@@ -7,7 +7,7 @@ MODE=${1:-doctor}
 if [[ $# -gt 0 ]]; then shift; fi
 usage() {
     cat <<'TEXT'
-用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test|external-helper-build [--identity NAME --team-id TEAM] [--route-trial]|external-helper-test|external-flow-build|external-flow-test]
+用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test|external-helper-build [--identity NAME --team-id TEAM] [--route-trial]|external-helper-test|external-flow-signing-preflight [--team-id TEAM]|external-flow-build [--sign --identity NAME --team-id TEAM --app-profile NAME --extension-profile NAME]|external-flow-test]
   doctor          只读检查，一次列出全部环境问题；默认检查界面开发环境
   doctor engine   检查原生引擎构建环境，包括 Go；不下载、不构建
   run             构建并打开 LocalDev；不需要 Go，不连接 VPN
@@ -27,8 +27,9 @@ usage() {
   external-execution-test 运行有限执行/撤销与持久化标记离线回归，不修改网络
   external-helper-build 构建独立控制 App/受限 Helper；默认不可授权、不安装、不运行；签名/试写显式选择
   external-helper-test 会话、身份合同、客户端/界面与构建离线回归，不注册服务或修改网络
-  external-flow-build 编译 FLOW-01 Transparent Proxy 探针库；不打包/签名/安装/启动扩展
-  external-flow-test 规则 first-match 与 provider 合同离线回归；不激活 Network Extension
+  external-flow-signing-preflight 只读列出 Developer ID identity 与匹配 Flow Probe 的 provisioning profile 候选
+  external-flow-build 构建 Flow Probe App + systemextension；默认 unsigned；--sign 显式 Developer ID 签名；永不安装/激活
+  external-flow-test 规则 first-match、wire、签名合同离线回归；不激活 Network Extension
 不需要历史补丁或 ZIP；本入口不执行 git pull 或安装任何软件。
 TEXT
 }
@@ -123,10 +124,14 @@ case "$MODE" in
         require_python
         exec /bin/bash "$ROOT/tools/external/helper-test.sh"
         ;;
-    external-flow-build)
-        [[ $# == 0 ]] || { usage >&2; exit 2; }
+    external-flow-signing-preflight)
+        [[ $# -le 2 ]] || { usage >&2; exit 2; }
         require_python
-        exec python3 "$ROOT/tools/external/flow-build.py"
+        exec python3 "$ROOT/tools/external/flow-signing-preflight.py" "$@"
+        ;;
+    external-flow-build)
+        require_python
+        exec python3 "$ROOT/tools/external/flow-build.py" "$@"
         ;;
     external-flow-test)
         [[ $# == 0 ]] || { usage >&2; exit 2; }

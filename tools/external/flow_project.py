@@ -105,6 +105,13 @@ def generate(root: Path, run: Path, generator=None) -> Path:
             "CODE_SIGN_ENTITLEMENTS": str(app_ent), "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO",
             "ENABLE_APP_SANDBOX": "NO"
         })
+        if name == "DeveloperID":
+            app.update({
+                "CODE_SIGN_STYLE": "Manual",
+                "DEVELOPMENT_TEAM": "$(FLOW_DEVELOPMENT_TEAM)",
+                "CODE_SIGN_IDENTITY": "$(FLOW_DEVELOPER_ID_IDENTITY)",
+                "PROVISIONING_PROFILE_SPECIFIER": "$(FLOW_APP_PROFILE_SPECIFIER)"
+            })
         ext = objects[gen.ident("tunnel." + name)]["buildSettings"]
         ext.update({
             "PRODUCT_BUNDLE_IDENTIFIER": "io.github.xiaodou997.VPNSplitter.FlowProbeExtension",
@@ -114,7 +121,16 @@ def generate(root: Path, run: Path, generator=None) -> Path:
             "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "NO", "ENABLE_APP_SANDBOX": "YES",
             "WRAPPER_EXTENSION": "systemextension", "SKIP_INSTALL": "YES"
         })
-        app.pop("PROVISIONING_PROFILE_SPECIFIER", None); ext.pop("PROVISIONING_PROFILE_SPECIFIER", None)
+        if name == "DeveloperID":
+            ext.update({
+                "CODE_SIGN_STYLE": "Manual",
+                "DEVELOPMENT_TEAM": "$(FLOW_DEVELOPMENT_TEAM)",
+                "CODE_SIGN_IDENTITY": "$(FLOW_DEVELOPER_ID_IDENTITY)",
+                "PROVISIONING_PROFILE_SPECIFIER": "$(FLOW_EXTENSION_PROFILE_SPECIFIER)"
+            })
+        if name != "DeveloperID":
+            app.pop("PROVISIONING_PROFILE_SPECIFIER", None)
+            ext.pop("PROVISIONING_PROFILE_SPECIFIER", None)
 
     objects[gen.ident("app.target")]["name"] = "VPN-Splitter-FlowProbe"
     objects[gen.ident("app.target")]["productName"] = "VPN-Splitter-FlowProbe"

@@ -268,6 +268,7 @@ struct ExternalFlowPage: View {
                             LabeledContent("配置数量") { Text("\(snapshot.configurationCount)") }
                             LabeledContent("配置启用") { Text(snapshot.configurationEnabled ? "是" : "否") }
                             LabeledContent("连接状态") { Text(snapshot.connectionStatus) }
+                            LabeledContent("Provider message") { Text(snapshot.providerMessageStatus ?? "not_attempted") }
                             LabeledContent("报告时间") { Text(snapshot.capturedAt.formatted(date: .numeric, time: .standard)) }
                             if let report = snapshot.providerReport {
                                 Divider()

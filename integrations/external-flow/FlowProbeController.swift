@@ -94,21 +94,22 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
             let matching = managers.filter { Self.bundleIdentifier($0) == Self.extensionID }
             let selected = matching.first
-            let report: ExternalFlowProbeReport?
-            if let selected { report = try await Self.providerReport(selected) }
-            else { report = nil }
+            let attempt: (String?, ExternalFlowProbeReport?)
+            if let selected { attempt = await Self.providerReportAttempt(selected) }
+            else { attempt = (nil, nil) }
             let snapshot = ExternalFlowProbeSnapshot(
                 configurationCount: matching.count,
                 configurationEnabled: selected?.isEnabled ?? false,
                 connectionStatus: selected.map { Self.statusName($0.connection.status) } ?? "not_configured",
-                providerReport: report
+                providerMessageStatus: attempt.0,
+                providerReport: attempt.1
             )
             let store = try ExternalFlowProbeSnapshotStore.applicationStore()
             try await store.save(snapshot)
-            if let report {
-                configurationStatus = "已发布脱敏报告：TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
+            if let report = attempt.1 {
+                configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
             } else {
-                configurationStatus = "已发布配置/连接状态；provider 未返回运行报告。"
+                configurationStatus = "已发布配置/连接状态；provider message=" + (attempt.0 ?? "not_attempted") + "。"
             }
         }
     }
@@ -123,20 +124,34 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
     }
 
-    private static func providerReport(_ manager: NETransparentProxyManager) async throws -> ExternalFlowProbeReport? {
-        guard manager.connection.status == .connected,
-              let session = manager.connection as? NETunnelProviderSession else { return nil }
-        let data: Data? = try await withCheckedThrowingContinuation { continuation in
-            do {
-                try session.sendProviderMessage(Data("probe-report-v1".utf8)) { response in
-                    continuation.resume(returning: response)
-                }
-            } catch {
-                continuation.resume(throwing: error)
-            }
+    private static func providerReportAttempt(_ manager: NETransparentProxyManager) async -> (String, ExternalFlowProbeReport?) {
+        guard manager.connection.status == .connected else { return ("not_connected", nil) }
+        guard let session = manager.connection as? NETunnelProviderSession else {
+            return ("unsupported_session", nil)
         }
-        guard let data, !data.isEmpty, data.count <= 16_384 else { return nil }
-        return try JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated()
+        let data: Data?
+        do {
+            data = try await withCheckedThrowingContinuation { continuation in
+                do {
+                    try session.sendProviderMessage(Data("probe-report-v1".utf8)) { response in
+                        continuation.resume(returning: response)
+                    }
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        } catch {
+            return ("send_failed", nil)
+        }
+        guard let data, !data.isEmpty, data.count <= 16_384 else {
+            return ("no_response", nil)
+        }
+        do {
+            let report = try JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated()
+            return ("pass", report)
+        } catch {
+            return ("invalid_response", nil)
+        }
     }
 
     private static func statusName(_ status: NEVPNStatus) -> String {
