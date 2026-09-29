@@ -82,6 +82,15 @@ def generate(root: Path, run: Path, generator=None) -> Path:
     objects[gen.ident("tunnel.target")]["packageProductDependencies"].append(dep)
     objects[gen.ident("tunnel.frameworks")]["files"].append(link)
 
+    wire_package = add("ExternalFlowWire.package", isa="XCLocalSwiftPackageReference",
+                       relativePath=os.path.relpath(root / "Packages/ExternalFlowWire", folder))
+    objects[gen.ident("project")]["packageReferences"].append(wire_package)
+    wire_dep = add("ExternalFlowWire.dep", isa="XCSwiftPackageProductDependency",
+                   package=wire_package, productName="ExternalFlowWire")
+    wire_link = add("ExternalFlowWire.link", isa="PBXBuildFile", productRef=wire_dep)
+    objects[gen.ident("app.target")]["packageProductDependencies"].append(wire_dep)
+    objects[gen.ident("app.frameworks")]["files"].append(wire_link)
+
     app_product = objects[gen.ident("app.product")]
     app_product["path"] = "VPN-Splitter-FlowProbe.app"
     ext_product = objects[gen.ident("tunnel.product")]

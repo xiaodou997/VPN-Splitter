@@ -25,9 +25,12 @@ struct FlowProbeApp: App {
                     HStack {
                         Button("启动探针") { control.startProbe() }.buttonStyle(.borderedProminent)
                         Button("停止探针") { control.stopProbe() }
+                        Button("刷新并发布脱敏报告") { control.publishSnapshot() }
                     }.disabled(control.busy)
                     Text("探针只统计 App signing ID / hostname / endpoint 是否可见；provider 对所有 flow 返回 false，不复制或改写流量。")
                         .foregroundStyle(.secondary)
+                    Text("发布只写本机用户目录中的计数/状态快照；不会写 hostname、App ID、IP、端口或报文。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)

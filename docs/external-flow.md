@@ -1,6 +1,6 @@
 # External Flow Bypass 开发入口
 
-EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前代码包含 first-match 规则核心与一个 pass-through provider 探针；没有流量复制、没有物理接口 DIRECT 转发，也没有可安装的系统扩展 bundle。
+EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP pass-through provider、unsigned App + systemextension 构建骨架、显式控制器以及主程序只读报告桥；没有流量复制或物理接口 DIRECT 转发。
 
 ## 当前安全入口
 
@@ -68,6 +68,33 @@ External 主界面的 APPLICATION 规则不再要求用户手写 Bundle ID。点
 - 稳定 `applicationIdentifier`（Signing ID）。
 
 不会保存应用文件路径。用户手动修改显示名时旧 Signing ID 会立即清除，避免 UI 指向新名字而执行仍匹配旧 App。未绑定稳定身份的 APP 规则可以保存草稿，但 FlowPolicy 不允许执行。
+
+## FLOW-01D：主程序脱敏报告桥
+
+Flow Probe App 与主 External App 是不同容器。Apple 的 `NETransparentProxyManager.loadAllFromPreferences` 只返回与“调用 App”关联、此前保存的 Transparent Proxy 配置，因此主程序不直接加载或控制 Flow Probe App 的 preferences。
+
+FLOW-01D 使用单向诊断桥：
+
+```text
+Transparent Proxy Provider
+        ↓ provider message: probe-report-v1
+Flow Probe App
+        ↓ user-local snapshot.json (0600)
+VPN-Splitter 主程序 / Flow 实验
+```
+
+Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加载自己的配置；若连接为 connected 且 connection 能作为 `NETunnelProviderSession`，发送 `probe-report-v1`；解码有界计数；写入 `~/Library/Application Support/io.github.xiaodou997.VPNSplitter.FlowProbeBridge/snapshot.json`。
+
+快照只含：
+
+- 配置数量、是否 enabled、连接状态；
+- 报告时间；
+- 总/TCP/UDP flow 数；
+- 有 App Signing ID / remoteHostname / remote endpoint 的 flow 数。
+
+不含真实 hostname、Signing ID、Bundle ID、IP、端口或 payload。主程序只读该文件，不能通过它启动/停止 provider、保存 preferences 或取得任何 route/flow 执行权限。同一用户下的其他进程理论上可以伪造诊断文件，因此它只用于 UI 能力观察，不能作为安全授权或实际出口证明。
+
+主程序 Flow 页面不会直接访问 `NETransparentProxyManager`；点击“读取最新本机报告”只读取快照，并对超过 5 分钟的结果标记为旧报告。
 
 ## 下一阶段
 

@@ -8,12 +8,12 @@ let package = Package(
         .library(name: "ExternalFlowCore", targets: ["ExternalFlowCore"]),
         .library(name: "ExternalFlowProvider", targets: ["ExternalFlowProvider"])
     ],
-    dependencies: [.package(path: "../ExternalCore"), .package(path: "../PolicyCore")],
+    dependencies: [.package(path: "../ExternalCore"), .package(path: "../PolicyCore"), .package(path: "../ExternalFlowWire")],
     targets: [
-        .target(name: "ExternalFlowCore", dependencies: ["ExternalCore", "PolicyCore"]),
-        .target(name: "ExternalFlowProvider", dependencies: ["ExternalFlowCore"],
+        .target(name: "ExternalFlowCore", dependencies: ["ExternalCore", "PolicyCore", "ExternalFlowWire"]),
+        .target(name: "ExternalFlowProvider", dependencies: ["ExternalFlowCore", "ExternalFlowWire"],
             linkerSettings: [.linkedFramework("NetworkExtension", .when(platforms: [.macOS])),
                              .linkedFramework("Network", .when(platforms: [.macOS]))]),
-        .testTarget(name: "ExternalFlowCoreTests", dependencies: ["ExternalFlowCore", "ExternalCore", "PolicyCore"])
+        .testTarget(name: "ExternalFlowCoreTests", dependencies: ["ExternalFlowCore", "ExternalCore", "PolicyCore", "ExternalFlowWire"])
     ], swiftLanguageModes: [.v6]
 )

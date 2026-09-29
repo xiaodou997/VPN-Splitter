@@ -10,7 +10,8 @@ class ExternalFlowContracts(unittest.TestCase):
         package = json.loads(subprocess.check_output(
             ['swift', 'package', '--package-path', str(PACKAGE), 'dump-package'], text=True, timeout=30))
         deps = {Path(x['fileSystem'][0]['path']).resolve() for x in package['dependencies']}
-        self.assertEqual(deps, {(ROOT / 'Packages/ExternalCore').resolve(), (ROOT / 'Packages/PolicyCore').resolve()})
+        self.assertEqual(deps, {(ROOT / 'Packages/ExternalCore').resolve(), (ROOT / 'Packages/PolicyCore').resolve(),
+                                (ROOT / 'Packages/ExternalFlowWire').resolve()})
         self.assertEqual({t['name'] for t in package['targets']},
                          {'ExternalFlowCore', 'ExternalFlowProvider', 'ExternalFlowCoreTests'})
         source = (PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift').read_text()
@@ -67,6 +68,24 @@ class ExternalFlowContracts(unittest.TestCase):
         self.assertNotIn('.onAppear', app)
         self.assertIn('FlowProbeController.swift', project)
         self.assertIn('app-proxy-provider-systemextension', project)
+
+    def test_flow01d_report_bridge_is_counts_only_and_explicit(self):
+        controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
+        app = (ROOT / 'integrations/external-flow/FlowProbeApp.swift').read_text()
+        provider = (PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift').read_text()
+        bridge = (ROOT / 'Packages/ExternalCore/Sources/ExternalPreview/ExternalFlowBridgeModel.swift').read_text()
+        wire = (ROOT / 'Packages/ExternalFlowWire/Sources/ExternalFlowWire/ExternalFlowProbeWire.swift').read_text()
+        for token in ['sendProviderMessage', 'probe-report-v1', 'ExternalFlowProbeSnapshotStore.applicationStore',
+                      'publishSnapshot()']:
+            self.assertIn(token, controller + app + provider)
+        for token in ['configurationCount', 'connectionStatus', 'providerReport',
+                      'withSourceSigningIdentifier', 'withRemoteHostname']:
+            self.assertIn(token, wire)
+        for forbidden in ['hostname: String', 'signingIdentifier: String', 'ipAddress', 'remotePort', 'payload']:
+            self.assertNotIn(forbidden, wire)
+        self.assertIn('store.load()', bridge)
+        self.assertNotIn('startVPNTunnel', bridge)
+        self.assertNotIn('saveToPreferences', bridge)
 
     def test_provider_source_parses_for_mac(self):
         source = PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift'
