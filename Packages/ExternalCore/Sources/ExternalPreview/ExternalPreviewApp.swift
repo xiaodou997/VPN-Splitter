@@ -72,14 +72,17 @@ struct ExternalPreviewApp: App {
     @StateObject private var model: ExternalModel
     @StateObject private var profiles: ExternalProfilesModel
     @StateObject private var helper: ExternalHelperModel
+    @StateObject private var flowBridge: ExternalFlowBridgeModel
     @State private var section: ExternalSidebarSection? = .overview
     init() {
         let network = ExternalModel()
         let documents = ExternalProfilesModel()
         let control = ExternalHelperModel()
+        let flow = ExternalFlowBridgeModel()
         _model = StateObject(wrappedValue: network)
         _profiles = StateObject(wrappedValue: documents)
         _helper = StateObject(wrappedValue: control)
+        _flowBridge = StateObject(wrappedValue: flow)
         ExternalTerminationDelegate.shouldTerminate = { [weak network, weak documents, weak control] in
             guard documents?.confirmDiscard() != false, control?.confirmQuit() != false else { return false }
             network?.cancel(); return true
@@ -87,7 +90,8 @@ struct ExternalPreviewApp: App {
     }
     var body: some Scene {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
-            ExternalRootView(model: model, profiles: profiles, helper: helper, selection: $section)
+            ExternalRootView(model: model, profiles: profiles, helper: helper,
+                             flowBridge: flowBridge, selection: $section)
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
                     model.cancel(); helper.invalidate()
                 }
