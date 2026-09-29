@@ -105,9 +105,23 @@ final class ExternalProfilesModel: ObservableObject {
     func editRule(_ id: UUID, text: String? = nil, enabled: Bool? = nil) {
         mutate { profile in
             guard let index = profile.rules.firstIndex(where: { $0.id == id }) else { return }
-            if let text { profile.rules[index].target = text }
+            if let text {
+                if profile.rules[index].kind == .application, text != profile.rules[index].target {
+                    profile.rules[index].applicationIdentifier = nil
+                }
+                profile.rules[index].target = text
+            }
             if let enabled { profile.rules[index].enabled = enabled }
         }
+    }
+    func bindApplication(_ id: UUID, app: ExternalInstalledApplication) {
+        mutate { profile in
+            guard let index = profile.rules.firstIndex(where: { $0.id == id }),
+                  profile.rules[index].kind == .application else { return }
+            profile.rules[index].target = app.displayName
+            profile.rules[index].applicationIdentifier = app.signingIdentifier
+        }
+        message = "已选择应用 \(app.displayName)；执行身份使用 Signing ID，不保存应用路径。尚未保存或应用。"
     }
     func moveRule(_ id: UUID, by offset: Int) { mutate { $0.move(id, by: offset) } }
     func removeRule(_ id: UUID) { mutate { $0.rules.removeAll { $0.id == id } } }
