@@ -21,6 +21,12 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         if key in objects: raise ValueError("E_FLOW_PROJECT_COLLISION")
         objects[key] = value; return key
 
+    # The base project lives under apps/macos; this generated project does not.
+    for value in objects.values():
+        if value.get("isa") == "PBXFileReference" and value.get("path", "").startswith("Config/"):
+            value["path"] = str(root / "apps/macos" / value["path"])
+            value["sourceTree"] = "<absolute>"
+
     # Generated build owns its Info/entitlement files; source files stay in repo.
     app_info = {
         "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)", "CFBundleExecutable": "$(EXECUTABLE_NAME)",
