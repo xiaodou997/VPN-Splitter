@@ -26,8 +26,12 @@ class ExternalFlowContracts(unittest.TestCase):
         project = ROOT / 'tools/external/flow_project.py'
         ast.parse(path.read_text()); ast.parse(project.read_text())
         source = path.read_text() + project.read_text()
-        for token in ['codesign', 'systemextensionsctl', 'SMAppService', '/usr/bin/open', 'sudo', 'launchctl']:
+        for token in ['systemextensionsctl', 'SMAppService', '/usr/bin/open', 'sudo', 'launchctl',
+                      'OSSystemExtensionManager.shared.submitRequest']:
             self.assertNotIn(token, source)
+        self.assertIn('/usr/bin/codesign', source)
+        self.assertIn('LOCAL_DEVELOPER_ID_VERIFIED', source)
+        self.assertIn('app-proxy-provider-systemextension', project.read_text())
         self.assertIn('wrapper.system-extension', (ROOT / 'tools/s1/generate-project.py').read_text())
         self.assertIn('com.apple.networkextension.app-proxy', project.read_text())
         self.assertIn('ExternalFlowProvider.ExternalTransparentProbeProvider', project.read_text())
@@ -36,6 +40,29 @@ class ExternalFlowContracts(unittest.TestCase):
             p = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=10)
             self.assertEqual(p.returncode, 69)
             self.assertIn('execution=NOT_RUN', p.stderr)
+
+    def test_signing_arguments_are_explicit_and_complete(self):
+        import importlib.util
+        path = ROOT / 'tools/external/flow-build.py'
+        spec = importlib.util.spec_from_file_location('flow_build', path)
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with self.assertRaises(SystemExit):
+            module.parse_args(['--identity', 'Developer ID Application'])
+        with self.assertRaises(SystemExit):
+            module.parse_args(['--sign', '--identity', 'Developer ID Application',
+                               '--team-id', 'ABCDE12345'])
+        args = module.parse_args([
+            '--sign', '--identity', 'Developer ID Application: Example (ABCDE12345)',
+            '--team-id', 'ABCDE12345', '--app-profile', 'Flow Probe App',
+            '--extension-profile', 'Flow Probe Extension'
+        ])
+        self.assertTrue(args.sign)
+        self.assertEqual(args.team_id, 'ABCDE12345')
+        with self.assertRaises(SystemExit):
+            module.parse_args([
+                '--sign', '--identity', 'Developer ID Application', '--team-id', 'bad',
+                '--app-profile', 'A', '--extension-profile', 'B'
+            ])
 
     def test_generated_systemextension_shape(self):
         import importlib.util, tempfile, plistlib
