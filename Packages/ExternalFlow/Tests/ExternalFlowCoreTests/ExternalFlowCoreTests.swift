@@ -42,6 +42,18 @@ final class ExternalFlowCoreTests: XCTestCase {
             applicationBindings: [.init(ruleID: app.id, signingIdentifier: "bad id")]))
     }
 
+    func testSavedApplicationIdentityCompilesWithoutExternalBinding() throws {
+        let app = ExternalSavedRule(kind: .application, target: "Telegram",
+                                    applicationIdentifier: "org.telegram.desktop")
+        let policy = try ExternalFlowPolicy(profile: .init(name: "x", rules: [app]))
+        XCTAssertEqual(policy.evaluate(.init(sourceAppSigningIdentifier: "org.telegram.desktop",
+                                             remoteHostname: nil, destinationIPv4: nil)),
+                       .direct(ruleID: app.id))
+        XCTAssertEqual(policy.evaluate(.init(sourceAppSigningIdentifier: "com.other",
+                                             remoteHostname: nil, destinationIPv4: nil)),
+                       .systemDefault)
+    }
+
     func testDisabledApplicationDoesNotRequireBinding() throws {
         let app = ExternalSavedRule(kind: .application, target: "Telegram", enabled: false)
         let policy = try ExternalFlowPolicy(profile: .init(name: "x", rules: [app]))
