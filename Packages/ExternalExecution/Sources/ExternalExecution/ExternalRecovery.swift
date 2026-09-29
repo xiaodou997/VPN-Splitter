@@ -30,7 +30,9 @@ public enum ExternalRecoveryHost {
         guard clearMarkerIfAbsent else {
             return .init(candidates: candidates.count, presentOrAmbiguous: present.count, markerCleared: false)
         }
-        guard present.isEmpty else { throw ExternalLeaseFailure.recoveryRequired }
+        guard present.isEmpty else {
+            return .init(candidates: candidates.count, presentOrAmbiguous: present.count, markerCleared: false)
+        }
         try journal.clearAuditedAbsence(routes: candidates, observation: observation,
                                         uptime: ProcessInfo.processInfo.systemUptime)
         return .init(candidates: candidates.count, presentOrAmbiguous: 0, markerCleared: true)
