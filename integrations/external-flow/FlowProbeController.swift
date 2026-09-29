@@ -94,7 +94,9 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
             let matching = managers.filter { Self.bundleIdentifier($0) == Self.extensionID }
             let selected = matching.first
-            let report = try await selected.map { try await Self.providerReport($0) } ?? nil
+            let report: ExternalFlowProbeReport?
+            if let selected { report = try await Self.providerReport(selected) }
+            else { report = nil }
             let snapshot = ExternalFlowProbeSnapshot(
                 configurationCount: matching.count,
                 configurationEnabled: selected?.isEnabled ?? false,
