@@ -30,7 +30,7 @@ struct ExternalRootView: View {
     @ObservedObject var model: ExternalModel
     @ObservedObject var profiles: ExternalProfilesModel
     @ObservedObject var helper: ExternalHelperModel
-    @Binding var selection: ExternalSidebarSection
+    @Binding var selection: ExternalSidebarSection?
 
     var body: some View {
         NavigationSplitView {
@@ -84,7 +84,7 @@ struct ExternalRootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        switch selection {
+        switch selection ?? .overview {
         case .overview:
             ExternalOverviewPage(model: model, profiles: profiles, helper: helper, selection: $selection)
         case .rules:
@@ -124,7 +124,7 @@ struct ExternalOverviewPage: View {
     @ObservedObject var model: ExternalModel
     @ObservedObject var profiles: ExternalProfilesModel
     @ObservedObject var helper: ExternalHelperModel
-    @Binding var selection: ExternalSidebarSection
+    @Binding var selection: ExternalSidebarSection?
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
