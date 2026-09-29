@@ -26,7 +26,7 @@ flow_copying=NOT_IMPLEMENTED
 
 ## FLOW-01 provider 行为
 
-`ExternalTransparentProbeProvider` 设置 outbound Transparent Proxy 匹配规则并观察进入 `handleNewFlow` 的 flow。它只累计以下计数，不记录或回传真实域名、App ID、IP、端口或报文：
+`ExternalTransparentProbeProvider` 首批只设置 outbound TCP Transparent Proxy 匹配规则并观察进入 `handleNewFlow` 的 flow；UDP/QUIC 不在这次探针范围，避免把 DNS/UDP 干扰混入首个能力判断。它只累计以下计数，不记录或回传真实域名、App ID、IP、端口或报文：
 
 - flow 总数；
 - TCP / UDP 类型计数；
