@@ -1,6 +1,6 @@
 # External Flow Bypass 开发入口
 
-EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP pass-through provider、unsigned App + systemextension 构建骨架、显式控制器以及主程序只读报告桥；没有流量复制或物理接口 DIRECT 转发。
+EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP pass-through provider、签名并公证的 App + systemextension、显式控制器以及主程序只读报告桥；FLOW-01F 已完成一次本机 pass-through 与第三方 VPN 共存验证。没有流量复制或物理接口 DIRECT 转发，hostname 缺失场景仍待受控分析。
 
 ## 当前安全入口
 
@@ -15,7 +15,7 @@ git pull --ff-only && \
 `external-flow-test` 运行 ExternalFlowCore Debug/Release 与合同测试，不激活 Network Extension。`external-flow-build` 现在生成隔离 Xcode 工程并构建 unsigned 的 Flow Probe App + `.systemextension`；不会签名、安装、注册配置、打开 App 或启动 provider。成功摘要明确包含：
 
 ```text
-schema=external-flow-build-v2
+schema=external-flow-build-v3
 compile_link=PASS
 execution=NOT_RUN
 network_settings=NOT_APPLIED
@@ -36,7 +36,7 @@ flow_copying=NOT_IMPLEMENTED
 
 `handleNewFlow` 始终返回 `false`。根据 Apple 对 `NETransparentProxyProvider` 的定义，这表示该 flow 继续由系统连接最终目的地；本探针不打开 `NWConnection`、不读取/写入 flow 字节、不宣称 DIRECT。
 
-包含 App/域名规则的真正执行要等 FLOW-01 真机证据：至少确认 Transparent Proxy 与原第三方 VPN 共存，来源 App signing identifier 和 connect-by-name hostname 的可见性符合预期，并明确无法观察时的降级行为。
+包含 App/域名规则的真正执行仍需受控样本和 FLOW-02 数据面。FLOW-01F 已确认 Transparent Proxy 与原第三方 VPN 共存、来源 App signing identifier 在本次累计样本中可见；hostname 在约 38% 的累计样本中可见。必须先分析缺失场景和无法观察时的降级行为，不能把 Probe 观察直接当作 DIRECT 执行能力。
 
 ## 规则核心
 
@@ -135,7 +135,7 @@ Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加�
 - 嵌套扩展文件名与 bundle ID 对应。
 - App 与扩展均带 Apple 安全时间戳，以供公证服务验证。
 
-通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier、公证状态和扩展自身的 `NSSystemExtensionUsageDescription`，因此构建结果继续标为 `system_acceptance=NOT_RUN`。本机首次激活返回签名错误；首次公证后又查出扩展缺少 usage description。生成器与构建器现已修复，并对修复版重新公证；系统最终接受和 Provider 探针仍需真机复验。见 [原生激活尝试](evidence/ex-flow-01f-native-activation-attempt.md)。
+通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier、公证状态和扩展自身的 `NSSystemExtensionUsageDescription`，因此**单次构建输出**继续标为 `system_acceptance=NOT_RUN`。本机 FLOW-01F 已另外完成公证、系统批准、pass-through Provider 往返和第三方 VPN 共存验证，见 [真机证据](evidence/ex-flow-01f-native-activation-attempt.md)。
 
 签名成功摘要升级为 `external-flow-build-v3`，并区分：
 
