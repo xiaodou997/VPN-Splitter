@@ -43,9 +43,12 @@ def parse_args(argv: list[str] | None = None):
     if args.sign:
         if any(value is None for value in supplied):
             parser.error("--sign requires --identity, --team-id, --app-profile and --extension-profile")
-        bounded_text(args.identity, "identity")
-        bounded_text(args.app_profile, "app-profile")
-        bounded_text(args.extension_profile, "extension-profile")
+        try:
+            bounded_text(args.identity, "identity")
+            bounded_text(args.app_profile, "app-profile")
+            bounded_text(args.extension_profile, "extension-profile")
+        except ValueError as error:
+            parser.error(str(error) + " contains invalid characters or length")
         if not re.fullmatch(r"[A-Z0-9]{10}", args.team_id or ""):
             parser.error("--team-id must be exactly 10 uppercase letters/digits")
     elif any(value is not None for value in supplied):
