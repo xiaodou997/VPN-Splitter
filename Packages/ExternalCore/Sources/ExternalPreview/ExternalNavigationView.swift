@@ -30,6 +30,7 @@ struct ExternalRootView: View {
     @ObservedObject var model: ExternalModel
     @ObservedObject var profiles: ExternalProfilesModel
     @ObservedObject var helper: ExternalHelperModel
+    @ObservedObject var flowBridge: ExternalFlowBridgeModel
     @Binding var selection: ExternalSidebarSection?
 
     var body: some View {
@@ -73,6 +74,13 @@ struct ExternalRootView: View {
                         Label("核查恢复", systemImage: "stethoscope")
                     }.disabled(helper.busy)
                 }
+                if selection == .flow {
+                    Button {
+                        flowBridge.reload()
+                    } label: {
+                        Label("读取探针报告", systemImage: "arrow.clockwise")
+                    }.disabled(flowBridge.busy)
+                }
             }
         }
         .onChange(of: profiles.changeID, initial: true) { _, _ in
@@ -94,7 +102,7 @@ struct ExternalRootView: View {
         case .recovery:
             ExternalRecoveryPage(helper: helper)
         case .flow:
-            ExternalFlowPage(profiles: profiles)
+            ExternalFlowPage(profiles: profiles, flowBridge: flowBridge)
         }
     }
 
@@ -243,6 +251,7 @@ struct ExternalRecoveryPage: View {
 
 struct ExternalFlowPage: View {
     @ObservedObject var profiles: ExternalProfilesModel
+    @ObservedObject var flowBridge: ExternalFlowBridgeModel
     private var flowRules: Int {
         profiles.editor.draft?.rules.filter { $0.enabled && $0.kind.requiresFlowBackend }.count ?? 0
     }
@@ -251,12 +260,41 @@ struct ExternalFlowPage: View {
             VStack(alignment: .leading, spacing: 18) {
                 ExternalPageHeader(title: "Flow 实验",
                     subtitle: "验证按应用和域名识别 flow 的能力；当前探针始终放行，不复制或改写真实流量。")
-                GroupBox("FLOW-01 状态") {
-                    VStack(alignment: .leading, spacing: 8) {
+                GroupBox("FLOW-01D · 探针状态") {
+                    VStack(alignment: .leading, spacing: 10) {
                         LabeledContent("当前方案 Flow 规则") { Text("\(flowRules)") }
-                        LabeledContent("TCP metadata 探针") { Text("代码已接入，待签名系统扩展真机验证") }
+                        Text(flowBridge.message).font(.callout).textSelection(.enabled)
+                        if let snapshot = flowBridge.snapshot {
+                            LabeledContent("配置数量") { Text("\(snapshot.configurationCount)") }
+                            LabeledContent("配置启用") { Text(snapshot.configurationEnabled ? "是" : "否") }
+                            LabeledContent("连接状态") { Text(snapshot.connectionStatus) }
+                            LabeledContent("报告时间") { Text(snapshot.capturedAt.formatted(date: .numeric, time: .standard)) }
+                            if let report = snapshot.providerReport {
+                                Divider()
+                                LabeledContent("观察到的 TCP flows") { Text("\(report.tcp)") }
+                                LabeledContent("带 App Signing ID") { Text("\(report.withSourceSigningIdentifier)") }
+                                LabeledContent("带 remoteHostname") { Text("\(report.withRemoteHostname)") }
+                                LabeledContent("带 remote endpoint") { Text("\(report.withRemoteEndpoint)") }
+                                LabeledContent("App 身份可观察") { Text(report.appIdentityObservable ? "部分可见" : "未证实") }
+                                LabeledContent("Hostname 可观察") { Text(report.hostnameObservable ? "部分可见" : "未证实") }
+                            } else {
+                                Text("当前快照没有 provider 运行报告；可能未启动、未连接，或连接对象不支持 provider message。")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        HStack {
+                            Button("读取最新本机报告") { flowBridge.reload() }.disabled(flowBridge.busy)
+                            Button("清除本窗口显示") { flowBridge.clearView() }
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                GroupBox("能力边界") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent("TCP metadata 探针") { Text("pass-through") }
                         LabeledContent("DIRECT flow copying") { Text("未实现") }
                         LabeledContent("UDP / QUIC") { Text("后续单独验证") }
+                        Text("主程序只读 Flow Probe App 发布的脱敏本机快照，不控制其 Network Extension 配置。")
+                            .font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Text("应用名称的模糊匹配用于搜索和选择；真正执行会绑定稳定 App signing identity，而不是长期保存脆弱的进程显示名。")
