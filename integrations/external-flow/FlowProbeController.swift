@@ -3,6 +3,7 @@ import Foundation
 import NetworkExtension
 import SystemExtensions
 import SwiftUI
+import ExternalFlowWire
 
 @MainActor
 final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
@@ -88,6 +89,28 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
     }
 
+    func publishSnapshot() {
+        perform {
+            let managers = try await NETransparentProxyManager.loadAllFromPreferences()
+            let matching = managers.filter { Self.bundleIdentifier($0) == Self.extensionID }
+            let selected = matching.first
+            let report = try await selected.map { try await Self.providerReport($0) } ?? nil
+            let snapshot = ExternalFlowProbeSnapshot(
+                configurationCount: matching.count,
+                configurationEnabled: selected?.isEnabled ?? false,
+                connectionStatus: selected.map { Self.statusName($0.connection.status) } ?? "not_configured",
+                providerReport: report
+            )
+            let store = try ExternalFlowProbeSnapshotStore.applicationStore()
+            try await store.save(snapshot)
+            if let report {
+                configurationStatus = "已发布脱敏报告：TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
+            } else {
+                configurationStatus = "已发布配置/连接状态；provider 未返回运行报告。"
+            }
+        }
+    }
+
     private func perform(_ work: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true
@@ -95,6 +118,34 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             defer { busy = false }
             do { try await work() }
             catch { configurationStatus = "操作失败：\(Self.safeCode(error))" }
+        }
+    }
+
+    private static func providerReport(_ manager: NETransparentProxyManager) async throws -> ExternalFlowProbeReport? {
+        guard manager.connection.status == .connected,
+              let session = manager.connection as? NETunnelProviderSession else { return nil }
+        let data: Data? = try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data("probe-report-v1".utf8)) { response in
+                    continuation.resume(returning: response)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+        guard let data, !data.isEmpty, data.count <= 16_384 else { return nil }
+        return try JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated()
+    }
+
+    private static func statusName(_ status: NEVPNStatus) -> String {
+        switch status {
+        case .invalid: return "invalid"
+        case .disconnected: return "disconnected"
+        case .connecting: return "connecting"
+        case .connected: return "connected"
+        case .reasserting: return "reasserting"
+        case .disconnecting: return "disconnecting"
+        @unknown default: return "unknown"
         }
     }
 
