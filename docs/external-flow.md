@@ -54,9 +54,9 @@ Flow Probe App 现在包含独立控制器，但没有任何自动启动行为�
 4. “停止探针”：只请求停止连接，保留配置和扩展安装状态。
 5. “移除探针配置”：停止连接并移除本应用的 Transparent Proxy preference；不自动停用 system extension。
 
-Apple 文档要求 system extension 从 App bundle 的 `Contents/Library/SystemExtensions` 激活，并在激活时校验 App 位置、签名和 entitlement；当前 unsigned 构建因此只能做编译/打包证据，不能用于激活验收。
+Apple 文档要求 system extension 从 App bundle 的 `Contents/Library/SystemExtensions` 激活，并在激活时校验 App 位置、签名和 entitlement。Developer ID 分发还要求公证；unsigned 构建只能做编译/打包证据，本地 Developer ID 验签也不能替代系统接受。不要通过关闭 SIP 或 Gatekeeper 绕过公证。[Apple System Extensions](https://developer.apple.com/documentation/systemextensions/)
 
-App/extension entitlement 生成器已切换到 Developer ID system-extension 形式的 `app-proxy-provider-systemextension`。真实 profile 是否授予该 entitlement 仍需签名构建验证。
+App/extension entitlement 使用 Developer ID system-extension 形式的 `app-proxy-provider-systemextension`。本机 profile 与签名产物已验证，见 [签名材料证据](evidence/ex-flow-01f-signing-materials.md)；系统激活另验。
 
 ## 应用规则选择器
 
@@ -133,8 +133,9 @@ Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加�
 - 主 App 签名含 `com.apple.developer.system-extension.install=true`；
 - extension 不得带 system-extension install entitlement；
 - 嵌套扩展文件名与 bundle ID 对应。
+- App 与扩展均带 Apple 安全时间戳，以供公证服务验证。
 
-通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement 和 extension identifier，因此结果继续标为 `system_acceptance=NOT_RUN`。
+通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier 和公证状态，因此结果继续标为 `system_acceptance=NOT_RUN`。本机首次激活返回 `OSSystemExtensionErrorDomain#8`，系统日志出现公证检查错误；后续时间戳构建已完成，仍需提交 Apple 公证并重新验收。见 [原生激活尝试](evidence/ex-flow-01f-native-activation-attempt.md)。
 
 签名成功摘要升级为 `external-flow-build-v3`，并区分：
 

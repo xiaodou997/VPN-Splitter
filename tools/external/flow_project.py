@@ -110,6 +110,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
                 "CODE_SIGN_STYLE": "Manual",
                 "DEVELOPMENT_TEAM": "$(FLOW_DEVELOPMENT_TEAM)",
                 "CODE_SIGN_IDENTITY": "$(FLOW_DEVELOPER_ID_IDENTITY)",
+                "OTHER_CODE_SIGN_FLAGS": "--timestamp",
                 "PROVISIONING_PROFILE_SPECIFIER": "$(FLOW_APP_PROFILE_SPECIFIER)"
             })
         ext = objects[gen.ident("tunnel." + name)]["buildSettings"]
@@ -126,6 +127,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
                 "CODE_SIGN_STYLE": "Manual",
                 "DEVELOPMENT_TEAM": "$(FLOW_DEVELOPMENT_TEAM)",
                 "CODE_SIGN_IDENTITY": "$(FLOW_DEVELOPER_ID_IDENTITY)",
+                "OTHER_CODE_SIGN_FLAGS": "--timestamp",
                 "PROVISIONING_PROFILE_SPECIFIER": "$(FLOW_EXTENSION_PROFILE_SPECIFIER)"
             })
         if name != "DeveloperID":

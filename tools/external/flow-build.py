@@ -65,6 +65,7 @@ def codesign_fields(path: Path) -> dict[str, str]:
     for line in text.splitlines():
         if line.startswith("Identifier="): values["identifier"] = line.split("=", 1)[1].strip()
         elif line.startswith("TeamIdentifier="): values["team"] = line.split("=", 1)[1].strip()
+        elif line.startswith("Timestamp="): values["timestamp"] = line.split("=", 1)[1].strip()
     if "identifier" not in values or "team" not in values:
         raise ValueError("codesign-metadata")
     return values
@@ -84,6 +85,8 @@ def verify_signed(path: Path, *, identifier: str, team: str, app: bool) -> None:
     fields = codesign_fields(path)
     if fields["identifier"] != identifier or fields["team"] != team:
         raise ValueError("codesign-identity")
+    if not fields.get("timestamp"):
+        raise ValueError("secure-timestamp")
     entitlements = codesign_entitlements(path)
     values = entitlements.get("com.apple.developer.networking.networkextension")
     if not isinstance(values, list) or NE_VALUE not in values:
