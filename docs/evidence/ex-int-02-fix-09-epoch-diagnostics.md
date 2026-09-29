@@ -22,8 +22,9 @@ failure=networkChanged
 
 - `external-execution-test` 初次运行时，原生 CLI 拼接测试的 `ExternalLeaseTransaction` 替身缺少新增属性，导致该测试编译失败；补齐替身后整套重跑通过。增加 DNS 变化与无关路由变化两种 fail-closed 断言，并检查诊断不泄露路由地址。测试替身不能当成真机网络稳定性证据。
 - `external-executor-build` 在 Mac 上输出 `compile=PASS`、`execution=NOT_RUN`；新精确产物 `.local/external/executor.7aanoup_/VPNExternalLease`，SHA-256 `ab95f2285b63dc80c189aa53c44bd7f208edcb5f6fccacf7c93acb8f98668244`。构建不运行或写路由。
-- 用户随后用该产物做管理员只读 `audit`，得到 `journalFailed`，没有候选计数。回读日志实现发现：`active` marker 不存在时，旧 `auditCandidates()` 也会返回 `journalFailed`；这与上次已清 marker、此次零写入并正常关闭相符，但还不能排除目录/锁权限或坏 marker。已请求用户只回报目录、锁和 active 是否存在的元数据，未读其内容。
+- 用户随后用该产物做管理员只读 `audit`，得到 `journalFailed`，没有候选计数。回读日志实现发现：`active` marker 不存在时，旧 `auditCandidates()` 也会返回 `journalFailed`。用户在本机只读核查并回报：目录 owner 0 / mode 700、锁 owner 0 / mode 600、`active=absent`；该结果与“无 marker”路径吻合，未读取 marker 内容或删除任何文件。
 - 将 `openat(active)` 明确返回 `ENOENT` 的情况处理为 0 个审计候选；其他打开错误、错误权限、符号链接和坏内容继续拒绝。`clear-absent-marker` 对 0 个候选仍不能清除或取得删除权。新增缺失 marker 负向测试后，`external-execution-test` 再次通过；Mac 新构建 `compile=PASS`，精确产物 `.local/external/executor.gz5ie8nz/VPNExternalLease`，SHA-256 `a98b4bee411cdb3988a502d57600c3de8f66ba2a6bc7e3c9b9ce703061a551e3`。新产物的 root 只读审计仍待本机确认。
-- 下一步先确认用户的目录元数据，再以新产物做管理员只读 `audit`。若需要再次做单目标写入，须另行现场授权，并在本机稳定窗口观察新增的 `snapshot_change` 分类；不因一次 20 秒稳定采样就降低 epoch 比较要求。
+- 用户用修复版新产物做管理员只读 `audit` 后反馈 `audit_candidates=0 present_or_ambiguous=0 route_writes=NONE`，记为 **USER_REPORTED PASS**；与本机确认的 `active=absent` 一致。新产物对同一私有目标重新运行只读 `inspect` 和原生 GET `probe`，分别为 `wouldAdd` / `network_settings=NOT_APPLIED` 与 `native_route_probe=PASS` / `mutation_attempts=0`；独立查询目标仍走 `utun8`，新产物 SHA-256 复算和 strict codesign 通过。
+- 若需要再次做单目标写入，须另行现场授权，并在本机稳定窗口观察新增的 `snapshot_change` 分类；不因一次 20 秒稳定采样就降低 epoch 比较要求。
 
 当前 FIX-08 的真实 ADD ACK、readback、DELETE ACK、自动撤销和真实双出口仍 **NOT RUN**。未修改第三方 VPN、DNS 或默认路由。
