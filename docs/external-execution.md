@@ -24,6 +24,8 @@ git pull --ff-only && \
 
 写入前若输出 `failure=networkChanged`，继续保持拒绝；不要把 `state=closed` 当成已应用。新版会另打印 `snapshot_change=`，仅列接口/物理路径/DNS 是否变化及路由增减条数，不含真实地址。该诊断用于判断下一步查哪个网络类别，不授权忽略变化后直接重试。
 
+活动期间若输出 `failure=observationFailed`，会话已因系统状态无法完整读取而保守停止；新版可能附带 `observation_error=` 的安全枚举类别。仍须同时核对 DELETE 诊断、剩余回执、最终选路和 root 私有 marker 审计，不能只看 `state=closed` 宣称正常租约验收。
+
 ## 3. 出现 recoveryRequired 时
 
 停止继续尝试，不删除锁/active 标记、不 flush 路由、不停掉别人的 VPN。`audit` 只读检查本工具 root 私有标记和当前候选残留，不取得删除权。日志放在 `/private/var/run/io.github.xiaodou997.VPNSplitter.ExternalLease`，只供本机管理员审核；不是跨重启/断电恢复机制。

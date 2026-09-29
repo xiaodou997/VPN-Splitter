@@ -38,12 +38,14 @@ private final class Driver: ExternalRouteOperating {
     var adds: [ExternalLeaseRoute] = []; var removes: [UInt64] = []
     var next = UInt64(1); var observeCount = 0
     var observationFailure = false; var eventFailure = false
+    var nextObservationError: ExternalError?
     var rejectAt: Int?; var unknownAt: Int?; var unknownCreates = false
     var removeRefused = false; var removeRetainsRow = false; var omitAddRow = false
     var afterAdd: (() -> Void)?
     init(_ initial: ExternalObservation? = nil) throws { rows = try (initial ?? snapshot()).routes }
     func observe() throws -> ExternalObservation {
         observeCount += 1
+        if let error = nextObservationError { nextObservationError = nil; throw error }
         if observationFailure { throw ExternalLeaseFailure.observationFailed }
         return try snapshot(rows: rows, dns: dns)
     }
@@ -180,6 +182,19 @@ final class ExternalLeaseTests: XCTestCase {
         let t = session(try plan(), d, j); t.start(consent: true)
         XCTAssertEqual(t.state, .closed); XCTAssertEqual(t.failure, .networkChanged)
         XCTAssertEqual(d.removes, [1]); XCTAssertEqual(t.postObservation, .changed)
+    }
+    func testTransientObservationFailureStopsAndReportsSafeCategory() throws {
+        let d = try Driver(), j = Journal(); let t = session(try plan(), d, j)
+        t.start(consent: true)
+        XCTAssertEqual(t.state, .active)
+        d.nextObservationError = .changedDuringRead
+        t.poll()
+        XCTAssertEqual(t.failure, .observationFailed)
+        XCTAssertEqual(t.observationErrorCode, "changedDuringRead")
+        XCTAssertEqual(t.state, .closed)
+        XCTAssertEqual(t.ownedCount, 0)
+        XCTAssertEqual(d.removes, [1])
+        XCTAssertEqual(t.postObservation, .unchanged)
     }
     func testIdleLeaseExpirationAndRepeatedStop() throws {
         let c = Clock(), d = try Driver(), j = Journal(); let t = session(try plan(), d, j, c)

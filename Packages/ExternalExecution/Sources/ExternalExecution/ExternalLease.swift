@@ -81,6 +81,8 @@ public final class ExternalLeaseTransaction {
     public private(set) var postObservation: ExternalPostObservation = .notObserved
     /// Category/count-only reason for an epoch rejection; never exposes route keys or DNS values.
     public private(set) var snapshotChangeSummary: String?
+    /// Safe error category from a failed system observation; never includes raw system output.
+    public private(set) var observationErrorCode: String?
     public var ownedCount: Int { owned.count }
     private struct Owned { let index: Int; let token: UInt64; let route: ExternalLeaseRoute; var row: ExternalRoute? }
     private let plan: ExternalLeasePlan
@@ -144,6 +146,7 @@ public final class ExternalLeaseTransaction {
             try checkLive()
             state = .active
         } catch {
+            recordObservationError(error)
             failure = error as? ExternalLeaseFailure ?? .observationFailed
             stop()
         }
@@ -159,6 +162,7 @@ public final class ExternalLeaseTransaction {
             }
             try checkSnapshot(try driver.observe())
         } catch {
+            recordObservationError(error)
             failure = error as? ExternalLeaseFailure ?? .observationFailed
             stop()
         }
@@ -217,6 +221,10 @@ public final class ExternalLeaseTransaction {
     private func note(_ event: String, _ index: Int) throws {
         do { try journal.record(event, index: index) }
         catch { journalHealthy = false; throw ExternalLeaseFailure.journalFailed }
+    }
+    private func recordObservationError(_ error: any Error) {
+        if let observed = error as? ExternalError { observationErrorCode = observed.rawValue }
+        else if error is ExternalRouteParseDiagnostic { observationErrorCode = "routeParse" }
     }
     private func checkSnapshot(_ observed: ExternalObservation) throws {
         try observed.checkFresh(now: uptime())

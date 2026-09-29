@@ -7,7 +7,7 @@
 | 项目 | 当前能力与边界 |
 | --- | --- |
 | EX-INT-01 / 02 只读路径 | 已有用户报告的执行器原生构建、inspect 和原生 GET probe 通过；界面中的检测仍只读，不等于真实双出口验收 |
-| EX-INT-02 前台候选 | 旧 ADD 回包超时及残留已由用户人工恢复。FIX-08 的首次复验在写入前因 `networkChanged` 拒绝，`mutation_attempts=0`；FIX-09 增加脱敏变化分类和无 marker 的零候选审计，仍待真机复核。ADD ACK、DELETE ACK 与自动撤销未验收；人工恢复不是自动回滚通过 |
+| EX-INT-02 前台候选 | 旧 ADD 回包超时及残留已由用户人工恢复。FIX-08 首次复验在写入前因 `networkChanged` 拒绝；第二次单目标实验得到 ADD ACK/readback，随后 `observationFailed` 触发保守停止，DELETE 阶段无内核错误、零剩余回执、快照不变，独立查询目标回 `utun8`、audit 用户报告零残留。正常停止/到期和真实双出口仍未验收；FIX-09/10 增加脱敏诊断，不放宽拒绝条件 |
 | EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
 | EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |

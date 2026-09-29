@@ -99,6 +99,7 @@ final class ExternalLeaseTransaction {
     let state = State.closed; let ownedCount = 0; let postObservation = PostObservation.unchanged
     let failure: ExternalLeaseFailure? = nil
     let snapshotChangeSummary: String? = nil
+    let observationErrorCode: String? = nil
     init(plan:ExternalLeasePlan, driver:NativeExternalRouteDriver, journal:ExternalLeaseFileJournal,
          now:()->TimeInterval, cancelled:()->Bool) { fatalError("probe created transaction") }
     func start(consent:Bool) { fatalError("probe tried start") }
