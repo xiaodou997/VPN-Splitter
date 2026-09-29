@@ -38,14 +38,16 @@ public struct ExternalFlowProbeSnapshot: Codable, Equatable, Sendable {
     public let configurationCount: Int
     public let configurationEnabled: Bool
     public let connectionStatus: String
+    public let providerMessageStatus: String?
     public let providerReport: ExternalFlowProbeReport?
 
     public init(id: UUID = UUID(), capturedAt: Date = Date(), configurationCount: Int,
                 configurationEnabled: Bool, connectionStatus: String,
+                providerMessageStatus: String? = nil,
                 providerReport: ExternalFlowProbeReport?) {
         self.id = id; self.capturedAt = capturedAt; self.configurationCount = configurationCount
         self.configurationEnabled = configurationEnabled; self.connectionStatus = connectionStatus
-        self.providerReport = providerReport
+        self.providerMessageStatus = providerMessageStatus; self.providerReport = providerReport
     }
 
     public func validated(now: Date = Date()) throws -> Self {
@@ -56,12 +58,23 @@ public struct ExternalFlowProbeSnapshot: Codable, Equatable, Sendable {
                   (97...122).contains(byte) || byte == 45 || byte == 95
               }),
               capturedAt <= now.addingTimeInterval(5),
-              capturedAt >= now.addingTimeInterval(-7 * 24 * 60 * 60) else {
+              capturedAt >= now.addingTimeInterval(-7 * 24 * 60 * 60),
+              providerMessageStatus == nil || Self.providerStatuses.contains(providerMessageStatus!) else {
             throw ExternalFlowProbeWireError.invalidSnapshot
         }
-        if let providerReport { _ = try providerReport.validated() }
+        if let providerReport {
+            _ = try providerReport.validated()
+            guard providerMessageStatus == "pass" else { throw ExternalFlowProbeWireError.invalidSnapshot }
+        } else if providerMessageStatus == "pass" {
+            throw ExternalFlowProbeWireError.invalidSnapshot
+        }
         return self
     }
+
+    private static let providerStatuses: Set<String> = [
+        "pass", "not_connected", "unsupported_session", "no_response",
+        "send_failed", "invalid_response"
+    ]
 }
 
 public enum ExternalFlowProbeWireError: String, Error, Sendable {
