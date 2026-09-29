@@ -83,7 +83,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
     app_product = objects[gen.ident("app.product")]
     app_product["path"] = "VPN-Splitter-FlowProbe.app"
     ext_product = objects[gen.ident("tunnel.product")]
-    ext_product["path"] = "$(FLOW_EXTENSION_BUNDLE_ID).systemextension"
+    ext_product["path"] = "io.github.xiaodou997.VPNSplitter.FlowProbeExtension.systemextension"
 
     for name in ("Debug", "Release", "DeveloperID"):
         app = objects[gen.ident("app." + name)]["buildSettings"]
@@ -97,7 +97,6 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         ext = objects[gen.ident("tunnel." + name)]["buildSettings"]
         ext.update({
             "PRODUCT_BUNDLE_IDENTIFIER": "io.github.xiaodou997.VPNSplitter.FlowProbeExtension",
-            "FLOW_EXTENSION_BUNDLE_ID": "io.github.xiaodou997.VPNSplitter.FlowProbeExtension",
             "PRODUCT_NAME": "io.github.xiaodou997.VPNSplitter.FlowProbeExtension",
             "PRODUCT_MODULE_NAME": "ExternalFlowProbe", "EXECUTABLE_NAME": "ExternalFlowProbe",
             "INFOPLIST_FILE": str(ext_plist), "CODE_SIGN_ENTITLEMENTS": str(ext_ent),
