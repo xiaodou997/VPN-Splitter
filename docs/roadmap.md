@@ -11,9 +11,9 @@
 | EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
 | EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |
-| EX-FLOW-01/01B | ExternalFlow first-match 核心 + TCP pass-through Transparent Proxy 探针；新增 unsigned App + .systemextension 隔离 Xcode 构建骨架。provider 始终返回 false，不复制/重定向流量；签名/激活及 App ID/hostname 可见性仍待 Mac 验证 |
-| External UI | 主窗口改为概览/规则/分流会话/恢复/Flow 实验侧边栏；Helper 注册放到原生 Settings；新增导航、规则、分流菜单与快捷键，不再把工程信息堆在一个 ScrollView |
-| External 下一主线 | 先完成新导航与 03D/03B 的 Mac 原生构建；FLOW-01B unsigned bundle 编译通过后再进入签名/激活，验证来源 App/hostname/TCP；通过后实现 FLOW-02 物理接口 DIRECT 流复制和 UDP/QUIC |
+| EX-FLOW-01/01B/01C | first-match 核心 + TCP pass-through Transparent Proxy 探针 + unsigned App/.systemextension 构建；新增显式 system-extension 激活、Transparent Proxy 配置/启动/停止控制代码。默认不自动运行；签名/激活及 App ID/hostname 可见性仍待 Mac 验证 |
+| External UI | 主窗口为概览/规则/分流会话/恢复/Flow 实验侧边栏；Helper 注册放到 Settings；APPLICATION 规则新增本机 App 模糊搜索/选择，保存显示名 + Signing ID，不保存路径 |
+| External 下一主线 | 先集中做 Mac 原生构建：新导航/APP 选择器、03D Helper、FLOW-01C App+sysex。之后准备 Flow Probe 签名/激活，验证来源 App/hostname/TCP；通过后才实现 FLOW-02 物理接口 DIRECT 流复制和 UDP/QUIC |
 | OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
