@@ -3,7 +3,7 @@
 import SwiftUI
 import ExternalCore
 
-enum ExternalSidebarSection: String, CaseIterable, Identifiable {
+enum ExternalSidebarSection: String, CaseIterable, Identifiable, Hashable {
     case overview, rules, session, recovery, flow
     var id: String { rawValue }
     var title: String {
