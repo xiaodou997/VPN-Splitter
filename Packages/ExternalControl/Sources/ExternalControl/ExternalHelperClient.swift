@@ -49,7 +49,7 @@ public final class ExternalHelperClient {
         try Task.checkCancellation()
         guard connection == nil else { throw ExternalControlError.busy }
         let team = try ExternalControlIdentity.currentTeam(helper: false)
-        guard registrationStatus() == "enabled" else { throw ExternalControlError.unavailable }
+        guard registrationStatus() == "enabled" else { throw ExternalControlError.serviceNotEnabled }
         let channel = NSXPCConnection(machServiceName: ExternalControlIdentity.service, options: .privileged)
         channel.setCodeSigningRequirement(try ExternalControlIdentity.requirement(team: team, helper: true))
         channel.remoteObjectInterface = NSXPCInterface(with: ExternalHelperXPC.self)
@@ -67,7 +67,8 @@ public final class ExternalHelperClient {
     }
     public func send(_ request: ExternalControlRequest) async throws -> ExternalControlReply {
         try Task.checkCancellation()
-        guard let connection, pending == nil else { throw ExternalControlError.unavailable }
+        guard let connection else { throw ExternalControlError.channelMissing }
+        guard pending == nil else { throw ExternalControlError.requestInFlight }
         let data = try request.encoded()
         _ = try ExternalControlRequest.decode(data)
         let id = generation
@@ -80,7 +81,7 @@ public final class ExternalHelperClient {
             let remote = connection.remoteObjectProxyWithErrorHandler { [weak self] _ in
                 Task { @MainActor [weak self] in self?.failed(id, error: .disconnected) }
             }
-            guard let proxy = remote as? ExternalHelperXPC else { failed(id, error: .unavailable); return }
+            guard let proxy = remote as? ExternalHelperXPC else { failed(id, error: .proxyUnavailable); return }
             proxy.request(data) { [weak self] bytes in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == id, self.pending?.0 == request.id else { return }

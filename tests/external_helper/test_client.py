@@ -56,11 +56,11 @@ final class NSXPCConnection: @unchecked Sendable {
     func setCodeSigningRequirement(_ value: String) { MockState.shared.requirement = value }
     func resume() {}
     func invalidate() { invalidationHandler?() }
-    func remoteObjectProxyWithErrorHandler(_ handler: @escaping @Sendable (any Error) -> Void) -> Any { MockProxy(handler) }
+    func remoteObjectProxyWithErrorHandler(_ handler: @escaping @Sendable (any Error) -> Void) -> Any { if MockState.shared.mode == 5 { return NSObject() }; return MockProxy(handler) }
 }
 final class SMAppService {
     enum Status { case enabled, requiresApproval, notRegistered, notFound }
-    var status: Status { .enabled }
+    var status: Status { MockState.shared.mode == 6 ? .requiresApproval : .enabled }
     static func daemon(plistName: String) -> SMAppService {
         precondition(plistName == ExternalControlIdentity.plist); return SMAppService()
     }
@@ -80,6 +80,17 @@ HARNESS = r'''
         let state = MockState.shared
         let client = ExternalHelperClient()
         switch CommandLine.arguments[1] {
+        case "missing-channel":
+            do { _ = try await client.send(.init(.hello)); fatalError("accepted missing channel") }
+            catch { check((error as? ExternalControlError) == .channelMissing && state.sent == 0) }
+        case "service-disabled":
+            state.mode = 6
+            do { _ = try await client.connect(); fatalError("accepted disabled service") }
+            catch { check((error as? ExternalControlError) == .serviceNotEnabled && state.opened == 0) }
+        case "proxy-unavailable":
+            state.mode = 5
+            do { _ = try await client.connect(); fatalError("accepted wrong proxy") }
+            catch { check((error as? ExternalControlError) == .proxyUnavailable && !client.isConnected && state.sent == 0) }
         case "roundtrip":
             let hello = try await client.connect()
             check(state.sent == 1 && client.instance == hello.instance)
@@ -106,6 +117,8 @@ HARNESS = r'''
                 catch { return true }
             }
             try await wait { state.getSent() == 2 }
+            do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("accepted concurrent request") }
+            catch { check((error as? ExternalControlError) == .requestInFlight && state.getSent() == 2) }
             client.close(); check(await work.value); check(!client.isConnected)
             state.mode = 0
             _ = try await client.connect(); await Task.yield(); check(client.isConnected)
@@ -142,7 +155,7 @@ class NativeClientTests(unittest.TestCase):
             compile = subprocess.run(['swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-warnings-as-errors',
                 optimization, '-parse-as-library', str(source), '-o', str(exe)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compile.returncode, 0, compile.stdout + compile.stderr)
-            for scenario in ['roundtrip', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'unregister', 'active-unregister']:
+            for scenario in ['missing-channel', 'service-disabled', 'proxy-unavailable', 'roundtrip', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'unregister', 'active-unregister']:
                 with self.subTest(scenario=scenario):
                     run = subprocess.run([str(exe), scenario], capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
