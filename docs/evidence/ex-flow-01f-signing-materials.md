@@ -21,6 +21,6 @@
 - `external-flow-build --sign`：`compile_link=PASS`，`signing=LOCAL_DEVELOPER_ID_VERIFIED`；构建器分别验证主 App 与内嵌 systemextension 的 exact bundle ID、Team ID、strict signature、Network Extension entitlement 和 App 的 System Extension install entitlement。产物留在 `.local/external/flow.yrgoga_h/Products/DeveloperID/VPN-Splitter-FlowProbe.app`；扩展 SHA-256 为 `ba2f0f5b68e08295817cedce1dbb3f2749121e2fce87a1fafb24c6e50c0418cf`。
 - Helper 首次签名重试已完成代码签名，但构建器的 `codesign -R` 自定义规则缺少源码表达式前缀，返回 `invalid requirement specification`。修复构建器后，`external-helper-build --identity ... --team-id ...` 输出 `compile=PASS`、`signing=LOCAL_IDENTITY_VERIFIED`、`route_trial=DISABLED`。产物留在 `.local/external/control.r7xusgsn/VPN-Splitter-ExternalControl.app`。
 - `external-helper-test`（ExternalControl Debug/Release 及 Python 合同）通过。另用 `codesign --verify --strict` 独立复核 Flow App、Flow extension、Control App 和 Helper，四项均通过。
-- `/Applications` 下未发现本次 Flow/Control App；`systemextensionsctl list` 未列出本项目的 Flow extension。
+- 已将本次签名并验签的 Flow Probe App 复制到 `/Applications/VPN-Splitter-FlowProbe.app`，复制后再次分别 strict 验证主 App 与内嵌扩展，均通过。App 正常开窗；点击“检查配置”只读返回“未保存 Transparent Proxy 配置”。本次没有将 Control App 放入 `/Applications`；`systemextensionsctl list` 未列出本项目的 Flow extension。
 
 System Extension activation、Transparent Proxy 配置/启动、provider message、第三方 VPN 共存、真实 flow 元数据和 DIRECT 数据面均为 **NOT RUN**。本轮没有安装或激活扩展，没有修改路由/DNS。`LOCAL_DEVELOPER_ID_VERIFIED` 仅是本地签名结构通过，不代表系统接受、公证或发行通过。
