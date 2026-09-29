@@ -36,7 +36,13 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
         let reloaded = try await store.load()
         let loaded = try XCTUnwrap(reloaded)
         XCTAssertEqual(loaded, value)
-        let data = try Data(contentsOf: root.appendingPathComponent("bridge/snapshot.json"))
+        let bridge = root.appendingPathComponent("bridge")
+        let snapshotFile = bridge.appendingPathComponent("snapshot.json")
+        let dirMode = try FileManager.default.attributesOfItem(atPath: bridge.path)[.posixPermissions] as! NSNumber
+        let fileMode = try FileManager.default.attributesOfItem(atPath: snapshotFile.path)[.posixPermissions] as! NSNumber
+        XCTAssertEqual(dirMode.intValue & 0o777, 0o700)
+        XCTAssertEqual(fileMode.intValue & 0o777, 0o600)
+        let data = try Data(contentsOf: snapshotFile)
         let text = String(decoding: data, as: UTF8.self)
         XCTAssertFalse(text.contains("example.com"))
         XCTAssertFalse(text.contains("org.telegram"))
