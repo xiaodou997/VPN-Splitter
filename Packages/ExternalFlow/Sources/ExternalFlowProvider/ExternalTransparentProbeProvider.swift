@@ -4,6 +4,7 @@ import Foundation
 import Network
 import NetworkExtension
 import ExternalFlowCore
+import ExternalFlowWire
 
 private final class ProbeCounters: @unchecked Sendable {
     private let lock = NSLock()
