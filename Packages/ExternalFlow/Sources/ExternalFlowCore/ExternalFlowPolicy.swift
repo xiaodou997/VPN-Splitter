@@ -72,7 +72,11 @@ public struct ExternalFlowPolicy: Sendable {
             case .domainKeyword:
                 compiled.append(.init(id: rule.id, matcher: .keyword(rule.target)))
             case .application:
-                guard let signing = bindings[rule.id] else { throw ExternalFlowCompileError.unresolvedApplication(rule.id) }
+                let signing = rule.applicationIdentifier ?? bindings[rule.id]
+                guard let signing else { throw ExternalFlowCompileError.unresolvedApplication(rule.id) }
+                guard Self.validSigningIdentifier(signing) else {
+                    throw ExternalFlowCompileError.invalidSigningIdentifier(rule.id)
+                }
                 compiled.append(.init(id: rule.id, matcher: .application(signing)))
             }
         }
