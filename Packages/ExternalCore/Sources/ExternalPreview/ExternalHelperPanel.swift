@@ -193,46 +193,96 @@ final class ExternalHelperModel: ObservableObject {
     }
 }
 
-struct ExternalHelperPanel: View {
+struct ExternalHelperSessionPanel: View {
     @ObservedObject var helper: ExternalHelperModel
     @ObservedObject var profiles: ExternalProfilesModel
     var body: some View {
-        GroupBox("应用内 Helper · EX-INT-03B") {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("状态：\(helper.registration)。仅签名控制版支持系统注册；默认构建禁止路由写入。")
-                HStack {
-                    Button("检查服务状态") { helper.refresh() }
-                    Button("申请系统授权") { helper.register() }
-                    Button("打开授权设置") { helper.openSettings() }
-                    Button("注销 Helper") { helper.unregister() }.disabled(helper.cleanupUnconfirmed)
-                }.disabled(helper.busy)
+        GroupBox("分流会话") {
+            VStack(alignment: .leading, spacing: 12) {
                 Text(helper.message).textSelection(.enabled)
+                Button("用已保存方案进行预检") { helper.prepare(profiles) }
+                    .disabled(helper.busy || helper.cleanupUnconfirmed || profiles.busy ||
+                              profiles.hasUnsavedChanges || profiles.editor.mustReload || !profiles.canRouteExecute)
+                if let response = helper.response {
+                    ForEach(Array(response.proposals.enumerated()), id: \.offset) { _, route in
+                        Text("\(route.destination) → \(route.gateway) / \(route.interface) · \(route.disposition)")
+                            .font(.system(.body, design: .monospaced))
+                    }
+                    Text("状态：\(response.result.state.rawValue) · \(response.result.diagnostic)")
+                        .font(.caption).textSelection(.enabled)
+                    if !response.canApply {
+                        Text("当前控制版为只读接线；受控写入需要单独签名的 route-trial 构建。").font(.caption)
+                    }
+                }
+                if profiles.hasEnabledFlowRules {
+                    Label("此方案含域名/应用规则，等待 Flow Bypass；当前 Route Helper 不会忽略后继续执行。",
+                          systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                }
+                Toggle("我已核对提案，允许本次有限 IPv4 直连例外", isOn: $helper.confirmed)
+                    .disabled(helper.busy || helper.response?.result.state != .prepared || helper.response?.canApply != true)
+                HStack {
+                    Button("开始 60 秒分流") { helper.apply(profiles) }.disabled(!helper.canApply)
+                        .buttonStyle(.borderedProminent)
+                    Button("停止 / 撤销") { helper.stop() }
+                }
+                Text("这里只控制本应用的有限 DIRECT 例外；不会停止原 VPN、修改默认路由或 DNS。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct ExternalRecoveryPanel: View {
+    @ObservedObject var helper: ExternalHelperModel
+    var body: some View {
+        GroupBox("恢复与异常处理") {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(helper.message).textSelection(.enabled)
+                if let result = helper.response?.result, result.state == .recoveryRequired {
+                    LabeledContent("恢复候选") { Text("\(result.recoveryCandidates)") }
+                    LabeledContent("仍存在 / 歧义") { Text("\(result.recoveryPresent)") }
+                }
                 HStack {
                     Button("核查恢复状态（只读）") { helper.auditRecovery() }
                     Button("重新核查并清除恢复标记") { helper.clearRecovery() }
                         .disabled(!helper.canClearRecovery)
                 }.disabled(helper.busy)
-                Button("用已保存方案进行 Helper 预检") { helper.prepare(profiles) }
-                    .disabled(helper.busy || helper.cleanupUnconfirmed || profiles.busy || profiles.hasUnsavedChanges || profiles.editor.mustReload || !profiles.canRouteExecute)
-                if let response = helper.response {
-                    ForEach(Array(response.proposals.enumerated()), id: \.offset) { _, route in
-                        Text("\(route.destination) → \(route.gateway) / \(route.interface) · \(route.disposition)")
-                    }
-                    Text("服务状态：\(response.result.state.rawValue)；\(response.result.diagnostic)").textSelection(.enabled)
-                    if !response.canApply { Text("此 Helper 为只读接线版。受控写入须单独签名的 route-trial 构建；不会自动解锁。") }
-                }
-                if profiles.hasEnabledFlowRules {
-                    Text("域名/应用规则需要 Flow Bypass；当前 Route Helper 不会执行或忽略它们。").font(.caption)
-                }
-                Toggle("我已核对提案，允许本次有限 IPv4 直连例外", isOn: $helper.confirmed)
-                    .disabled(helper.busy || helper.response?.result.state != .prepared || helper.response?.canApply != true)
-                HStack {
-                    Button("应用 60 秒分流") { helper.apply(profiles) }.disabled(!helper.canApply)
-                    Button("停止 / 撤销当前连接") { helper.stop() }
-                }
-                Text("没有默认路由或 DNS 修改、自动续期或重连。切换方案、睡眠或连接丢失会请求停止；清理不明时如实保留状态。")
-                    .font(.footnote)
+                Text("不会在这里强制删除路由。只有两次新鲜观察均确认候选不存在时，才删除本工具的恢复标记。")
+                    .font(.footnote).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+struct ExternalHelperSettingsPanel: View {
+    @ObservedObject var helper: ExternalHelperModel
+    var body: some View {
+        GroupBox("系统 Helper") {
+            VStack(alignment: .leading, spacing: 12) {
+                LabeledContent("注册状态") { Text(helper.registration) }
+                HStack {
+                    Button("检查状态") { helper.refresh() }
+                    Button("申请系统授权") { helper.register() }
+                    Button("打开系统设置") { helper.openSettings() }
+                    Button("注销 Helper") { helper.unregister() }.disabled(helper.cleanupUnconfirmed)
+                }.disabled(helper.busy)
+                Text("系统授权只允许控制 App 与 Helper 建立受限连接；不会自动应用任何分流规则。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// Compatibility wrapper for focused tests and older call sites.
+struct ExternalHelperPanel: View {
+    @ObservedObject var helper: ExternalHelperModel
+    @ObservedObject var profiles: ExternalProfilesModel
+    var body: some View {
+        VStack(spacing: 16) {
+            ExternalHelperSessionPanel(helper: helper, profiles: profiles)
+            ExternalRecoveryPanel(helper: helper)
+            ExternalHelperSettingsPanel(helper: helper)
         }
     }
 }
