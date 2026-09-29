@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-29 / EX-INT-03B 认证 Helper 与应用内会话代码接线。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 导入/兼容性检查提前，WireGuard 签名与新增功能暂缓**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-09-29 / EX-INT-03B 认证 Helper 与应用内会话代码接线。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -8,10 +8,10 @@
 | --- | --- |
 | EX-INT-01 / 02 只读路径 | 已有用户报告的执行器原生构建、inspect 和原生 GET probe 通过；界面中的检测仍只读，不等于真实双出口验收 |
 | EX-INT-02 前台候选 | 现场观察到 ADD 后回包超时及残留，已由用户人工恢复并 audit 未见候选残留；FIX-08 已提交，修复后自动确认/撤销仍未验收。人工恢复不是自动回滚通过 |
-| EX-INT-03A | External 界面接入 16 套规则方案保存/选择/复制/删除，逐条编辑/停用/排序，编辑保护与版本冲突拒绝；已有离线回归；用户本轮报告验证通过（未提供逐项明细，不扩大为 Helper/网络验收） |
-| EX-INT-03B | 真实 SMAppService/XPC 身份门控、一次性预检票据、原生路由事务接线与 GUI 应用/停止状态已有代码；默认构建禁止写入；24 项会话与 13 项客户端/界面/构建回归通过。Mac 编译、真实认证/注册及自动撤销未验收 |
-| External 下一主线 | 集中验证新控制 App/Helper 原生构建与正反向身份授权，再进行受控写入/停止联调；补齐断连后的状态恢复与持久化恢复交互。不把代码接线或预检通过当作实际分流已验收 |
-| OpenVPN 提前项 | .ovpn 导入、材料引用、脚本/插件拒绝与兼容性报告；本批尚未实现，不冒充可连接 |
+| EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过，03B 仍待 Mac 原生身份、系统批准和自动撤销验收 |
+| EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
+| External 下一主线 | 先补 Recovery UI；并行开展 EX-FLOW-01：Transparent Proxy + 来源应用身份 + hostname + 物理接口出站可行性。通过后把域名/应用规则接入 Flow Bypass；Route Bypass 继续作为 IP 兼容路径 |
+| OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |
 | S0 | 原 D 直连、V 保持 VPN 和路径恢复样本保留；不要求为 EX-INT-01 重做手工写路由实验 |
