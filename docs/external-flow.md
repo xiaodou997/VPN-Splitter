@@ -12,15 +12,15 @@ git pull --ff-only && \
 /bin/bash dev.sh external-flow-build
 ```
 
-`external-flow-test` 运行 ExternalFlowCore Debug/Release 与合同测试，不激活 Network Extension。`external-flow-build` 只用当前 macOS SDK 编译 `ExternalFlowProvider` library target；不会签名、打包、安装、注册或启动 provider。成功摘要明确包含：
+`external-flow-test` 运行 ExternalFlowCore Debug/Release 与合同测试，不激活 Network Extension。`external-flow-build` 现在生成隔离 Xcode 工程并构建 unsigned 的 Flow Probe App + `.systemextension`；不会签名、安装、注册配置、打开 App 或启动 provider。成功摘要明确包含：
 
 ```text
-schema=external-flow-build-v1
-compile=PASS
+schema=external-flow-build-v2
+compile_link=PASS
 execution=NOT_RUN
 network_settings=NOT_APPLIED
-provider_bundle=NOT_CREATED
 extension_activation=NOT_REQUESTED
+signing=UNSIGNED
 flow_copying=NOT_IMPLEMENTED
 ```
 
