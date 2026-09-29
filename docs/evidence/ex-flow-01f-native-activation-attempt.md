@@ -14,6 +14,8 @@
 
 - DeveloperID 构建为主 App 和 systemextension 加入 `--timestamp`；构建后二次验签现强制要求 `Timestamp=`。重新运行 `external-flow-build --sign` 输出 `compile_link=PASS`、`signing=LOCAL_DEVELOPER_ID_VERIFIED`，并实际观察两者的 Apple 安全时间戳。
 - 时间戳版产物位于 `.local/external/flow.3ythwbqb/Products/DeveloperID/VPN-Splitter-FlowProbe.app`；只保存在本机的 `cert/flow-probe-notary.zip` 包含完整 App，供 Apple 公证服务提交。压缩包 SHA-256：`06a09be38814c3f0e482eb650e37610b6eb31f207de9fd5c150142e21e7aae77`。
-- `external-flow-test` Debug/Release 与合同测试通过。公证凭据尚未建立，公证提交/票据/系统再激活仍为 **NOT RUN**。
+- `external-flow-test` Debug/Release 与合同测试通过。用户在本机钥匙串保存了 App 专用密码，密码未进入仓库或聊天。`notarytool` 提交 ID 为 `bd469f63-d018-4c61-a8d0-dc2491d9840a`，服务端状态 `Accepted`、`Ready for distribution`、`issues=null`；提交归档 SHA-256 与上文一致。
+- `stapler staple` / `stapler validate` 通过；`spctl --assess --type execute` 对 App 返回 `accepted`、`source=Notarized Developer ID`，同时报告本机 `override=security disabled`，因此不能把这一步单独当成默认 Gatekeeper 环境验收。嵌套扩展的 strict codesign 校验通过。已将旧 `/Applications` App 备份到 `.local/external/flow-prenotary-20260929.app`，并将已公证版本放入 `/Applications`，再次校验票据、`spctl` 与 strict codesign 通过。
+- 公证后系统再激活与 Provider 探针结果仍待现场验证，不能据此宣称 Flow Bypass 可用。
 
 没有关闭 SIP 或 Gatekeeper，也没有应用路由、DNS 或 Transparent Proxy 配置。原第三方 VPN 尚未开启；App ID/hostname 的真实可见性与 VPN 共存均未验证。
