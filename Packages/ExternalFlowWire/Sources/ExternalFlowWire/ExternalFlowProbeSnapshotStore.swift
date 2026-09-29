@@ -114,7 +114,7 @@ public actor ExternalFlowProbeSnapshotStore {
 
     private static func regular(_ fd: Int32) -> Bool {
         var info = stat()
-        return fstat(fd, &info) == 0, info.st_uid == getuid() &&
+        return fstat(fd, &info) == 0 && info.st_uid == getuid() &&
             info.st_nlink == 1 && info.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG) &&
             info.st_mode & 0o777 == 0o600
     }
