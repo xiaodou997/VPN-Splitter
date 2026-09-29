@@ -52,7 +52,7 @@ def compile_once(arguments: list[str], log) -> None:
     if result: raise subprocess.CalledProcessError(result, arguments)
 
 def requirement(identifier: str, team: str) -> str:
-    text = f'anchor apple generic and identifier "{identifier}" and certificate leaf[subject.OU] = "{team}"'
+    text = f'=anchor apple generic and identifier "{identifier}" and certificate leaf[subject.OU] = "{team}"'
     for name in ['get-task-allow', 'cs.disable-library-validation', 'cs.allow-dyld-environment-variables', 'cs.allow-unsigned-executable-memory']:
         text += f' and ! (entitlement["com.apple.security.{name}"] exists)'
     return text
