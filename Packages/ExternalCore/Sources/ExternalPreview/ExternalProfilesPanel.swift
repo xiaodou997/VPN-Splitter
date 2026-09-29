@@ -5,6 +5,7 @@ import ExternalCore
 
 struct ExternalProfilesPanel: View {
     @ObservedObject var profiles: ExternalProfilesModel
+    @State private var applicationRuleID: UUID?
     var body: some View {
         GroupBox("本机规则方案 · EX-INT-03A") {
             VStack(alignment: .leading, spacing: 12) {
@@ -34,10 +35,24 @@ struct ExternalProfilesPanel: View {
                                 .accessibilityLabel("启用第 \(index + 1) 条规则")
                             Text("\(index + 1)").font(.caption).frame(width: 22)
                             Text(rule.kind.rawValue).font(.caption.monospaced()).frame(width: 112, alignment: .leading)
-                            TextField("规则值", text: Binding(get: {
-                                profiles.editor.draft?.rules.first { $0.id == rule.id }?.target ?? ""
-                            }, set: { profiles.editRule(rule.id, text: $0) }))
-                                .font(.system(.body, design: .monospaced))
+                            if rule.kind == .application {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    TextField("应用名称", text: Binding(get: {
+                                        profiles.editor.draft?.rules.first { $0.id == rule.id }?.target ?? ""
+                                    }, set: { profiles.editRule(rule.id, text: $0) }))
+                                    if let identifier = profiles.editor.draft?.rules.first(where: { $0.id == rule.id })?.applicationIdentifier {
+                                        Text(identifier).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                                    } else {
+                                        Text("未绑定稳定应用身份").font(.caption2).foregroundStyle(.orange)
+                                    }
+                                }
+                                Button("选择应用…") { applicationRuleID = rule.id }
+                            } else {
+                                TextField("规则值", text: Binding(get: {
+                                    profiles.editor.draft?.rules.first { $0.id == rule.id }?.target ?? ""
+                                }, set: { profiles.editRule(rule.id, text: $0) }))
+                                    .font(.system(.body, design: .monospaced))
+                            }
                             Button("上移") { profiles.moveRule(rule.id, by: -1) }.disabled(index == 0)
                             Button("下移") { profiles.moveRule(rule.id, by: 1) }.disabled(index + 1 == draft.rules.count)
                             Button("移除") { profiles.removeRule(rule.id) }
@@ -63,6 +78,13 @@ struct ExternalProfilesPanel: View {
                     Text("新建方案后加入直连目标；再次打开应用会载入上次保存的选择。")
                 }
             }.padding(8).disabled(profiles.busy)
+        }
+        .sheet(isPresented: Binding(get: { applicationRuleID != nil }, set: { if !$0 { applicationRuleID = nil } })) {
+            ExternalApplicationPicker { app in
+                guard let id = applicationRuleID else { return }
+                profiles.bindApplication(id, app: app)
+                applicationRuleID = nil
+            }
         }
     }
 }
