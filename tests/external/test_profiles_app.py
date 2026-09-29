@@ -27,6 +27,11 @@ protocol ObservableObject: AnyObject {}
     init(wrappedValue: Value) { self.wrappedValue = wrappedValue }
 }
 #endif
+struct ExternalInstalledApplication: Sendable {
+    let displayName: String
+    let signingIdentifier: String
+    let bundleIdentifier: String?
+}
 // Deliberate dialog substitute on every OS: never show NSAlert from offline tests.
 @MainActor final class NSAlert {
     enum Reply { case alertFirstButtonReturn, alertSecondButtonReturn }
@@ -132,8 +137,14 @@ class ProfileAppTests(unittest.TestCase):
         panel = (UI / 'ExternalProfilesPanel.swift').read_text()
         app = (UI / 'ExternalPreviewApp.swift').read_text()
         navigation = (UI / 'ExternalNavigationView.swift').read_text()
-        for token in ['profiles.select(', 'profiles.save()', 'profiles.addBatch()', 'profiles.moveRule(', 'profiles.deleteSelected()']:
+        for token in ['profiles.select(', 'profiles.save()', 'profiles.addBatch()', 'profiles.moveRule(', 'profiles.deleteSelected()', 'profiles.bindApplication(']:
             self.assertIn(token,panel)
+        catalog = (UI / 'ExternalApplicationCatalog.swift').read_text()
+        for token in ['/Applications', '/System/Applications', 'SecStaticCodeCreateWithPath', 'kSecCodeInfoIdentifier',
+                      'signingIdentifier', 'ExternalApplicationPicker']:
+            self.assertIn(token,catalog)
+        for token in ['UserDefaults', 'write(to:', 'applicationIdentifier = app.signingIdentifier']:
+            self.assertNotIn(token,catalog)
         combined = app + navigation
         for token in ['ExternalProfilesPanel(profiles: profiles)', 'model.cancel(); helper.invalidate(); model.rules = profiles.enabledRules',
                       'profiles.hasUnsavedChanges', 'ExternalTerminationDelegate.shouldTerminate']:
@@ -144,7 +155,7 @@ class ProfileAppTests(unittest.TestCase):
             self.assertNotIn(token,model)
         self.assertIn('expectedRevision: before.workspace.revision',model)
         self.assertIn('editor.failed(failure)',model)
-        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalNavigationView.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
+        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalApplicationCatalog.swift'),str(UI/'ExternalNavigationView.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
         self.assertEqual(parsed.returncode,0,parsed.stdout+parsed.stderr)
 
     def compile_run(self, optimization):
