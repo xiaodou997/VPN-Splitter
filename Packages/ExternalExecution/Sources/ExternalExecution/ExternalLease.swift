@@ -79,6 +79,8 @@ public final class ExternalLeaseTransaction {
     public private(set) var state: ExternalLeaseState = .idle
     public private(set) var failure: ExternalLeaseFailure?
     public private(set) var postObservation: ExternalPostObservation = .notObserved
+    /// Category/count-only reason for an epoch rejection; never exposes route keys or DNS values.
+    public private(set) var snapshotChangeSummary: String?
     public var ownedCount: Int { owned.count }
     private struct Owned { let index: Int; let token: UInt64; let route: ExternalLeaseRoute; var row: ExternalRoute? }
     private let plan: ExternalLeasePlan
@@ -222,9 +224,15 @@ public final class ExternalLeaseTransaction {
         for item in owned {
             guard let row = item.row, rows.remove(row) != nil else { throw ExternalLeaseFailure.readbackFailed }
         }
-        guard Set(observed.interfaces) == Set(plan.baseline.interfaces),
-              Set(observed.physicalPaths) == Set(plan.baseline.physicalPaths),
-              Set(observed.observedDNSServers) == Set(plan.baseline.observedDNSServers), rows == plan.baseline.routes else {
+        let interfacesChanged = Set(observed.interfaces) != Set(plan.baseline.interfaces)
+        let physicalPathsChanged = Set(observed.physicalPaths) != Set(plan.baseline.physicalPaths)
+        let dnsChanged = Set(observed.observedDNSServers) != Set(plan.baseline.observedDNSServers)
+        let routesAdded = rows.subtracting(plan.baseline.routes).count
+        let routesRemoved = plan.baseline.routes.subtracting(rows).count
+        guard !interfacesChanged, !physicalPathsChanged, !dnsChanged,
+              routesAdded == 0, routesRemoved == 0 else {
+            snapshotChangeSummary = "interfaces_changed=\(interfacesChanged) physical_paths_changed=\(physicalPathsChanged) " +
+                "dns_changed=\(dnsChanged) routes_added=\(routesAdded) routes_removed=\(routesRemoved)"
             throw ExternalLeaseFailure.networkChanged
         }
     }

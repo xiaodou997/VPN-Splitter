@@ -124,6 +124,19 @@ final class ExternalLeaseTests: XCTestCase {
         let d = try Driver(), j = Journal(); d.dns = "10.8.0.54"
         let t = session(try plan(), d, j); t.start(consent: true)
         XCTAssertEqual(t.failure, .networkChanged); XCTAssertTrue(d.adds.isEmpty); XCTAssertEqual(j.began, 0)
+        XCTAssertEqual(t.snapshotChangeSummary,
+                       "interfaces_changed=false physical_paths_changed=false dns_changed=true routes_added=0 routes_removed=0")
+    }
+    func testUnrelatedRouteChangeIsStillRejectedWithCountOnlyDiagnostic() throws {
+        let d = try Driver(), j = Journal()
+        d.rows.insert(ExternalRoute(destination: try IPv4CIDR("203.0.113.0/24"),
+                                    gateway: "10.8.0.1", interface: "utun42", flags: "UGSc"))
+        let t = session(try plan(), d, j); t.start(consent: true)
+        XCTAssertEqual(t.failure, .networkChanged)
+        XCTAssertTrue(d.adds.isEmpty); XCTAssertEqual(j.began, 0)
+        XCTAssertEqual(t.snapshotChangeSummary,
+                       "interfaces_changed=false physical_paths_changed=false dns_changed=false routes_added=1 routes_removed=0")
+        XCTAssertFalse(t.snapshotChangeSummary!.contains("203.0.113"))
     }
     func testExistingDirectRoutesAreNeverClaimedOrDeleted() throws {
         let single = try plan().additions[0]
@@ -258,6 +271,14 @@ final class ExternalLeaseJournalTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path)); try j.finish()
             XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("lease.lock").path))
+        }
+    }
+    func testAbsentMarkerAuditsAsZeroWithoutGrantingClearAuthority() throws {
+        try temporary { dir in
+            let j = try ExternalLeaseFileJournal(directory: dir, owner: getuid())
+            XCTAssertEqual(try j.auditCandidates(), [])
+            XCTAssertThrowsError(try j.clearAuditedAbsence(routes: [], observation: snapshot(), uptime: 101))
+            XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("active").path))
         }
     }
     func testConcurrentWriterRejectedWithoutDeletingLock() throws {

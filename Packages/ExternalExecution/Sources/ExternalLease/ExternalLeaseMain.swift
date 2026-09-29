@@ -98,6 +98,7 @@ struct ExternalLeaseMain {
             session.stop()
             print(driver.diagnosticSummary)
             print("state=\(session.state.rawValue) owned_receipts_remaining=\(session.ownedCount) snapshot_comparison=\(session.postObservation.rawValue)")
+            if let summary = session.snapshotChangeSummary { print("snapshot_change=\(summary)") }
             print("traffic_paths=NOT_VERIFIED; no_system_restore_guarantee=true")
             if let failure = session.failure { print("failure=\(failure.rawValue)") }
             return session.state == .closed && session.failure == nil ? 0 : 2

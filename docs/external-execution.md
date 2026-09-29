@@ -22,10 +22,14 @@ git pull --ff-only && \
 
 退出摘要 `state=closed` 只表示本工具没有剩余已知回执/未知写入。`snapshot_comparison=unchanged` 只是观察到的路由、接口、物理服务和 DNS 地址集合对照，不是 DNS 查询行为、全系统恢复或未来状态保证。租约到期会打印 expired 并可能返回非零；需同时看清理状态，而不是只看进程退出码。
 
+写入前若输出 `failure=networkChanged`，继续保持拒绝；不要把 `state=closed` 当成已应用。新版会另打印 `snapshot_change=`，仅列接口/物理路径/DNS 是否变化及路由增减条数，不含真实地址。该诊断用于判断下一步查哪个网络类别，不授权忽略变化后直接重试。
+
 ## 3. 出现 recoveryRequired 时
 
 停止继续尝试，不删除锁/active 标记、不 flush 路由、不停掉别人的 VPN。`audit` 只读检查本工具 root 私有标记和当前候选残留，不取得删除权。日志放在 `/private/var/run/io.github.xiaodou997.VPNSplitter.ExternalLease`，只供本机管理员审核；不是跨重启/断电恢复机制。
 
 `clear-absent-marker` 只在所有候选及更具体路由在全部 scope 均不存在时移除本工具标记；不写网络。残留存在、日志损坏或归属不明时不会清理，也不应通过移除标记强行继续。进程崩溃/SIGKILL 后不能靠重新启动工具自动删除旧路由，须现场人工核对和既定恢复流程。
+
+只读 `audit` 对确实不存在的 active marker 报 0 个候选；这不是“已恢复旧路由”的证明。`clear-absent-marker` 在无 marker 时仍拒绝清除。目录/锁权限、符号链接或损坏 marker 继续作为日志故障处理，不能用零候选报告掩盖。
 
 后续产品工作仍包括签名身份验证 Helper、GUI 应用/撤销、完整异常恢复及真实双路径验收。OpenVPN 导入保持提前排队，本批没有新增 OpenVPN 支持；WG 已有原生构建证据保留且不要求恢复签名。

@@ -89,6 +89,7 @@ public final class ExternalLeaseFileJournal: ExternalLeaseJournaling {
     public func auditCandidates() throws -> [ExternalLeaseRoute] {
         guard activeFD < 0 else { throw ExternalLeaseFailure.invalidState }
         let fd = openat(directoryFD, "active", O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        if fd < 0 && errno == ENOENT { return [] }
         guard fd >= 0, Self.regular(fd, owner: owner) else {
             if fd >= 0 { close(fd) }; throw ExternalLeaseFailure.journalFailed
         }
