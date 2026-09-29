@@ -233,12 +233,60 @@ final class ExternalControlTests: XCTestCase, @unchecked Sendable {
         XCTAssertEqual(stopped.result.state, .recoveryRequired, "no session cannot erase old recovery")
         XCTAssertEqual(world.count("prepare"), 0)
     }
+    func testRecoveryAuditRequiresExplicitClearAndFreshZeroPresent() async {
+        let world = World()
+        let host = ExternalControlService(allowApply: true, initialRecovery: true, now: { world.now() },
+            authorize: { world.authorized($0) }, factory: { _, _ in Lease(world) },
+            recovery: { action in
+                world.note(action.rawValue)
+                if action == .recoveryAudit {
+                    return .init(.recoveryRequired, code: "recoveryAbsent",
+                                 recoveryCandidates: 1, recoveryPresent: 0)
+                }
+                return .init(.closed, code: "recoveryCleared",
+                             recoveryCandidates: 1, recoveryPresent: 0)
+            })
+        let peer = ExternalControlPeer(uid: 501)
+        let hello = await host.handle(.init(.hello), peer: peer)
+        XCTAssertEqual(hello.result.state, .recoveryRequired)
+        let audit = await host.handle(.init(.recoveryAudit, instance: host.instance), peer: peer)
+        XCTAssertEqual(audit.result.code, "recoveryAbsent")
+        XCTAssertEqual(audit.result.recoveryCandidates, 1)
+        XCTAssertEqual(audit.result.recoveryPresent, 0)
+        let stillBlocked = await host.handle(.init(.prepare, instance: host.instance,
+            profile: UUID(), revision: UUID(), rules: "198.51.100.7/32"), peer: peer)
+        XCTAssertEqual(stillBlocked.result.state, .recoveryRequired)
+        let cleared = await host.handle(.init(.recoveryClear, instance: host.instance), peer: peer)
+        XCTAssertEqual(cleared.result.code, "recoveryCleared")
+        let next = await host.handle(.init(.status, instance: host.instance), peer: peer)
+        XCTAssertEqual(next.result.state, .idle)
+        XCTAssertEqual(world.count("recoveryAudit"), 1)
+        XCTAssertEqual(world.count("recoveryClear"), 1)
+        XCTAssertEqual(world.count("prepare"), 0)
+    }
+    func testRecoveryClearRefusesWhenFreshAuditStillFindsCandidate() async {
+        let world = World()
+        let host = ExternalControlService(allowApply: true, initialRecovery: true, now: { world.now() },
+            authorize: { world.authorized($0) }, factory: { _, _ in Lease(world) },
+            recovery: { _ in
+                .init(.recoveryRequired, code: "recoveryPresent",
+                      recoveryCandidates: 1, recoveryPresent: 1)
+            })
+        let peer = ExternalControlPeer(uid: 501); _ = await host.handle(.init(.hello), peer: peer)
+        let cleared = await host.handle(.init(.recoveryClear, instance: host.instance), peer: peer)
+        XCTAssertEqual(cleared.result.state, .recoveryRequired)
+        XCTAssertEqual(cleared.result.recoveryPresent, 1)
+        let status = await host.handle(.init(.status, instance: host.instance), peer: peer)
+        XCTAssertEqual(status.result.state, .recoveryRequired)
+    }
     func testResponseBindingAndBounds() throws {
         let request = ExternalControlRequest(.hello)
         var reply = ExternalControlReply(requestID: request.id, instance: UUID(), canApply: false, result: .init(.idle))
         XCTAssertNoThrow(try ExternalControlReply.decode(reply.encoded(), request: request))
         XCTAssertThrowsError(try ExternalControlReply.decode(reply.encoded(), request: .init(.hello)))
         reply.result.owned = 9
+        XCTAssertThrowsError(try ExternalControlReply.decode(reply.encoded(), request: request))
+        reply.result.owned = 0; reply.result.recoveryCandidates = 1; reply.result.recoveryPresent = 2
         XCTAssertThrowsError(try ExternalControlReply.decode(reply.encoded(), request: request))
     }
 }
