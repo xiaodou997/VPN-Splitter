@@ -49,22 +49,28 @@ public struct ExternalSavedRule: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public var kind: ExternalSavedRuleKind
     public var target: String
+    public var applicationIdentifier: String?
     public var enabled: Bool
-    public init(id: UUID = UUID(), kind: ExternalSavedRuleKind = .ipCIDR, target: String, enabled: Bool = true) {
-        self.id = id; self.kind = kind; self.target = target; self.enabled = enabled
+    public init(id: UUID = UUID(), kind: ExternalSavedRuleKind = .ipCIDR, target: String,
+                applicationIdentifier: String? = nil, enabled: Bool = true) {
+        self.id = id; self.kind = kind; self.target = target
+        self.applicationIdentifier = applicationIdentifier; self.enabled = enabled
     }
-    private enum CodingKeys: String, CodingKey { case id, kind, target, enabled }
+    private enum CodingKeys: String, CodingKey { case id, kind, target, applicationIdentifier, enabled }
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
         kind = try container.decodeIfPresent(ExternalSavedRuleKind.self, forKey: .kind) ?? .ipCIDR
         target = try container.decode(String.self, forKey: .target)
+        applicationIdentifier = try container.decodeIfPresent(String.self, forKey: .applicationIdentifier)
         enabled = try container.decode(Bool.self, forKey: .enabled)
     }
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id); try container.encode(kind, forKey: .kind)
-        try container.encode(target, forKey: .target); try container.encode(enabled, forKey: .enabled)
+        try container.encode(target, forKey: .target)
+        try container.encodeIfPresent(applicationIdentifier, forKey: .applicationIdentifier)
+        try container.encode(enabled, forKey: .enabled)
     }
     public func validated() throws -> Self {
         let trimmed = target.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -78,24 +84,35 @@ public struct ExternalSavedRule: Codable, Equatable, Identifiable, Sendable {
                   let cidr = try? IPv4CIDR(trimmed.contains("/") ? trimmed : trimmed + "/32") else {
                 throw ExternalProfileError.invalidRules
             }
-            return Self(id: id, kind: kind, target: cidr.description, enabled: enabled)
+            return Self(id: id, kind: kind, target: cidr.description, applicationIdentifier: nil, enabled: enabled)
         case .domain:
             guard let value = Self.normalizedDomain(trimmed, suffix: false) else { throw ExternalProfileError.invalidRules }
-            return Self(id: id, kind: kind, target: value, enabled: enabled)
+            return Self(id: id, kind: kind, target: value, applicationIdentifier: nil, enabled: enabled)
         case .domainSuffix:
             guard let value = Self.normalizedDomain(trimmed, suffix: true) else { throw ExternalProfileError.invalidRules }
-            return Self(id: id, kind: kind, target: value, enabled: enabled)
+            return Self(id: id, kind: kind, target: value, applicationIdentifier: nil, enabled: enabled)
         case .domainKeyword:
             let value = trimmed.lowercased()
             guard (1...64).contains(value.utf8.count), value.utf8.allSatisfy({ byte in
                 (48...57).contains(byte) || (97...122).contains(byte) || byte == 45 || byte == 46 || byte == 95
             }) else { throw ExternalProfileError.invalidRules }
-            return Self(id: id, kind: kind, target: value, enabled: enabled)
+            return Self(id: id, kind: kind, target: value, applicationIdentifier: nil, enabled: enabled)
         case .application:
             guard (1...128).contains(trimmed.count), trimmed.utf8.count <= 512 else {
                 throw ExternalProfileError.invalidRules
             }
-            return Self(id: id, kind: kind, target: trimmed, enabled: enabled)
+            if let identifier = applicationIdentifier {
+                guard Self.validApplicationIdentifier(identifier) else { throw ExternalProfileError.invalidRules }
+                return Self(id: id, kind: kind, target: trimmed,
+                            applicationIdentifier: identifier, enabled: enabled)
+            }
+            return Self(id: id, kind: kind, target: trimmed, applicationIdentifier: nil, enabled: enabled)
+        }
+    }
+    private static func validApplicationIdentifier(_ value: String) -> Bool {
+        (1...255).contains(value.utf8.count) && value.utf8.allSatisfy { byte in
+            (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte) ||
+                byte == 45 || byte == 46 || byte == 95
         }
     }
     private static func normalizedDomain(_ text: String, suffix: Bool) -> String? {
@@ -169,7 +186,10 @@ public struct ExternalSavedProfile: Codable, Equatable, Identifiable, Sendable {
         rules.swapAt(index, index + delta)
     }
     public func duplicated(name: String) -> Self {
-        Self(name: name, rules: rules.map { ExternalSavedRule(kind: $0.kind, target: $0.target, enabled: $0.enabled) })
+        Self(name: name, rules: rules.map {
+            ExternalSavedRule(kind: $0.kind, target: $0.target,
+                              applicationIdentifier: $0.applicationIdentifier, enabled: $0.enabled)
+        })
     }
 }
 

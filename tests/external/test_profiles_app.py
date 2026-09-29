@@ -27,6 +27,11 @@ protocol ObservableObject: AnyObject {}
     init(wrappedValue: Value) { self.wrappedValue = wrappedValue }
 }
 #endif
+struct ExternalInstalledApplication: Sendable {
+    let displayName: String
+    let signingIdentifier: String
+    let bundleIdentifier: String?
+}
 // Deliberate dialog substitute on every OS: never show NSAlert from offline tests.
 @MainActor final class NSAlert {
     enum Reply { case alertFirstButtonReturn, alertSecondButtonReturn }
@@ -109,6 +114,14 @@ HARNESS = r'''
             model.editRule(id,text:"invalid",enabled:false); model.save()
             require(model.hasUnsavedChanges && model.editor.workspace.profiles.isEmpty,"invalid disabled rule saved")
             require(model.enabledRules.isEmpty,"invalid rules presented for preview")
+        case "application-binding":
+            model.newProfile(); model.editName("apps")
+            model.batchText = "APP,Telegram"; model.addBatch()
+            let id = model.editor.draft!.rules[0].id
+            model.bindApplication(id, app: .init(displayName:"Telegram", signingIdentifier:"org.telegram.desktop", bundleIdentifier:"org.telegram.desktop"))
+            require(model.editor.draft!.rules[0].applicationIdentifier == "org.telegram.desktop", "app identity not bound")
+            model.editRule(id, text:"Telegram Beta")
+            require(model.editor.draft!.rules[0].applicationIdentifier == nil, "editing display name retained stale app identity")
         default: fatalError("unknown scenario")
         }
         print("external-profiles-app=PASS documents_model_store=ACTUAL dialogs=TEST_DOUBLES network=NOT_READ")
@@ -132,8 +145,14 @@ class ProfileAppTests(unittest.TestCase):
         panel = (UI / 'ExternalProfilesPanel.swift').read_text()
         app = (UI / 'ExternalPreviewApp.swift').read_text()
         navigation = (UI / 'ExternalNavigationView.swift').read_text()
-        for token in ['profiles.select(', 'profiles.save()', 'profiles.addBatch()', 'profiles.moveRule(', 'profiles.deleteSelected()']:
+        for token in ['profiles.select(', 'profiles.save()', 'profiles.addBatch()', 'profiles.moveRule(', 'profiles.deleteSelected()', 'profiles.bindApplication(']:
             self.assertIn(token,panel)
+        catalog = (UI / 'ExternalApplicationCatalog.swift').read_text()
+        for token in ['/Applications', '/System/Applications', 'SecStaticCodeCreateWithPath', 'kSecCodeInfoIdentifier',
+                      'signingIdentifier', 'ExternalApplicationPicker']:
+            self.assertIn(token,catalog)
+        for token in ['UserDefaults', 'write(to:', 'applicationIdentifier = app.signingIdentifier']:
+            self.assertNotIn(token,catalog)
         combined = app + navigation
         for token in ['ExternalProfilesPanel(profiles: profiles)', 'model.cancel(); helper.invalidate(); model.rules = profiles.enabledRules',
                       'profiles.hasUnsavedChanges', 'ExternalTerminationDelegate.shouldTerminate']:
@@ -144,7 +163,7 @@ class ProfileAppTests(unittest.TestCase):
             self.assertNotIn(token,model)
         self.assertIn('expectedRevision: before.workspace.revision',model)
         self.assertIn('editor.failed(failure)',model)
-        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalNavigationView.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
+        parsed = subprocess.run(['swiftc','-frontend','-parse','-target','arm64-apple-macos26.0',str(UI/'ExternalProfilesModel.swift'),str(UI/'ExternalProfilesPanel.swift'),str(UI/'ExternalApplicationCatalog.swift'),str(UI/'ExternalNavigationView.swift'),str(UI/'ExternalPreviewApp.swift')],capture_output=True,text=True,timeout=30)
         self.assertEqual(parsed.returncode,0,parsed.stdout+parsed.stderr)
 
     def compile_run(self, optimization):
@@ -162,7 +181,7 @@ class ProfileAppTests(unittest.TestCase):
             run(common+['-emit-library','-emit-module','-module-name','ExternalCore','-I',temp,'-L',temp,'-lPolicyCore',*map(str,sources),'-emit-module-path',str(p/'ExternalCore.swiftmodule'),'-o',str(p/('libExternalCore'+ext))])
             (p/'main.swift').write_text(PREAMBLE+'\n'+actual_model()+'\n'+HARNESS)
             run(common+['-parse-as-library','-I',temp,'-L',temp,'-lExternalCore','-lPolicyCore','-Xlinker','-rpath','-Xlinker',temp,str(p/'main.swift'),'-o',str(p/'harness')])
-            for scenario in ['roundtrip','discard-and-pending-input','stale-save','delete-and-selection','invalid-batch-and-rule']:
+            for scenario in ['roundtrip','discard-and-pending-input','stale-save','delete-and-selection','invalid-batch-and-rule','application-binding']:
                 with self.subTest(scenario=scenario):
                     result = run([str(p/'harness'),scenario],timeout=15)
                     self.assertIn('external-profiles-app=PASS',result.stdout)

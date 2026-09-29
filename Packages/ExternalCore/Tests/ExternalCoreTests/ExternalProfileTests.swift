@@ -94,6 +94,23 @@ final class ExternalProfileTests: XCTestCase {
         let rule = (records[0]["rules"] as! [[String:Any]])[0]
         XCTAssertEqual(rule["kind"] as? String, "IP-CIDR")
     }
+    func testApplicationIdentityPersistsSeparatelyFromDisplayName() throws {
+        let rule = try ExternalSavedRule(kind: .application, target: "Telegram",
+                                         applicationIdentifier: "org.telegram.desktop").validated()
+        XCTAssertEqual(rule.target, "Telegram")
+        XCTAssertEqual(rule.applicationIdentifier, "org.telegram.desktop")
+        let profile = try ExternalSavedProfile(name: "apps", rules: [rule]).validated()
+        let data = try JSONEncoder().encode(profile)
+        let text = String(decoding: data, as: UTF8.self)
+        XCTAssertTrue(text.contains("Telegram"))
+        XCTAssertTrue(text.contains("org.telegram.desktop"))
+        XCTAssertFalse(text.contains("/Applications/"))
+        let roundtrip = try JSONDecoder().decode(ExternalSavedProfile.self, from: data)
+        XCTAssertEqual(roundtrip.rules.first?.applicationIdentifier, "org.telegram.desktop")
+        XCTAssertThrowsError(try ExternalSavedRule(kind: .application, target: "Bad",
+                                                   applicationIdentifier: "bad id").validated())
+    }
+
     func testTypedDomainApplicationAndLegacyMigration() throws {
         var value = ExternalSavedProfile(name: "typed")
         try value.appendBatch("DOMAIN,WWW.Example.COM.\nDOMAIN-SUFFIX,*.Example.COM\nDOMAIN-KEYWORD,GitHub\nAPP,Google Chrome\n192.0.2.9")

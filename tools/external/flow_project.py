@@ -47,11 +47,11 @@ def generate(root: Path, run: Path, generator=None) -> Path:
     app_plist = folder / "app-Info.plist"; app_plist.write_bytes(plistlib.dumps(app_info))
     ext_plist = folder / "extension-Info.plist"; ext_plist.write_bytes(plistlib.dumps(ext_info))
     app_ent = folder / "app.entitlements"; app_ent.write_bytes(plistlib.dumps({
-        "com.apple.developer.networking.networkextension": ["app-proxy-provider"],
+        "com.apple.developer.networking.networkextension": ["app-proxy-provider-systemextension"],
         "com.apple.developer.system-extension.install": True
     }))
     ext_ent = folder / "extension.entitlements"; ext_ent.write_bytes(plistlib.dumps({
-        "com.apple.developer.networking.networkextension": ["app-proxy-provider"],
+        "com.apple.developer.networking.networkextension": ["app-proxy-provider-systemextension"],
         "com.apple.security.app-sandbox": True,
         "com.apple.security.network.client": True
     }))
@@ -63,13 +63,15 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         objects[gen.ident(role + ".frameworks")]["files"] = []
         objects[gen.ident(role + ".target")]["packageProductDependencies"] = []
 
-    for role, source_name in (("app", "FlowProbeApp.swift"), ("tunnel", "FlowProbeMain.swift")):
-        source = root / "integrations/external-flow" / source_name
-        ref = add(role + ".source", isa="PBXFileReference", lastKnownFileType="sourcecode.swift",
-                  path=str(source), sourceTree="<absolute>")
-        build = add(role + ".source.build", isa="PBXBuildFile", fileRef=ref)
-        objects[gen.ident("root")]["children"].append(ref)
-        objects[gen.ident(role + ".sources")]["files"].append(build)
+    for role, source_names in (("app", ("FlowProbeApp.swift", "FlowProbeController.swift")),
+                               ("tunnel", ("FlowProbeMain.swift",))):
+        for source_name in source_names:
+            source = root / "integrations/external-flow" / source_name
+            ref = add(role + "." + source_name + ".source", isa="PBXFileReference",
+                      lastKnownFileType="sourcecode.swift", path=str(source), sourceTree="<absolute>")
+            build = add(role + "." + source_name + ".source.build", isa="PBXBuildFile", fileRef=ref)
+            objects[gen.ident("root")]["children"].append(ref)
+            objects[gen.ident(role + ".sources")]["files"].append(build)
 
     package = add("ExternalFlow.package", isa="XCLocalSwiftPackageReference",
                   relativePath=os.path.relpath(root / "Packages/ExternalFlow", folder))
