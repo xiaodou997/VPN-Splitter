@@ -36,6 +36,24 @@ class ExternalFlowContracts(unittest.TestCase):
             self.assertEqual(p.returncode, 69)
             self.assertIn('execution=NOT_RUN', p.stderr)
 
+    def test_generated_systemextension_shape(self):
+        import importlib.util, tempfile, plistlib
+        spec = importlib.util.spec_from_file_location('flow_project', ROOT / 'tools/external/flow_project.py')
+        module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory(prefix='flow-project-') as directory:
+            project = module.generate(ROOT, Path(directory))
+            self.assertTrue((project / 'project.pbxproj').is_file())
+            folder = project.parent
+            info = plistlib.loads((folder / 'extension-Info.plist').read_bytes())
+            self.assertEqual(info['NetworkExtension']['NEProviderClasses']['com.apple.networkextension.app-proxy'],
+                             'ExternalFlowProvider.ExternalTransparentProbeProvider')
+            ent = plistlib.loads((folder / 'extension.entitlements').read_bytes())
+            self.assertIn('app-proxy-provider', ent['com.apple.developer.networking.networkextension'])
+            text = (project / 'project.pbxproj').read_text()
+            self.assertIn('VPN-Splitter-FlowProbe', text)
+            self.assertIn('FlowProbeExtension', text)
+            self.assertIn('wrapper.system-extension', text)
+
     def test_provider_source_parses_for_mac(self):
         source = PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift'
         p = subprocess.run(['swiftc', '-frontend', '-parse', '-target', 'arm64-apple-macos26.0', str(source)],
