@@ -2,6 +2,7 @@
 import XCTest
 import PolicyCore
 import ExternalCore
+import ExternalFlowWire
 @testable import ExternalFlowCore
 
 final class ExternalFlowCoreTests: XCTestCase {
