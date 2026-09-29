@@ -111,7 +111,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
     private static func connectionSummary(_ manager: NETransparentProxyManager) -> String {
         "enabled=\(manager.isEnabled) connection=\(manager.connection.status.rawValue)"
     }
-    private static func safeCode(_ error: any Error) -> String {
+    nonisolated private static func safeCode(_ error: any Error) -> String {
         if let own = error as? FlowProbeControlError { return own.rawValue }
         let value = error as NSError
         return "\(value.domain)#\(value.code)"
@@ -137,9 +137,10 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
     }
     nonisolated func request(_ request: OSSystemExtensionRequest, didFailWithError error: any Error) {
-        Task { @MainActor [weak self] in
+        let code = Self.safeCode(error)
+        Task { @MainActor [weak self, code] in
             self?.busy = false
-            self?.extensionStatus = "System Extension 激活失败：" + Self.safeCode(error)
+            self?.extensionStatus = "System Extension 激活失败：" + code
         }
     }
 }
