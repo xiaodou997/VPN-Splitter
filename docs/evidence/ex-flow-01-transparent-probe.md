@@ -18,13 +18,13 @@
 - provider message `probe-report-v1` 只返回计数，不含真实 App ID、hostname、IP、端口或流量。
 - 明确没有 `NWConnection`、flow open/read/write、数据复制或 DIRECT 出站。
 
-新增 `external-flow-test` 和 `external-flow-build`。build 只编译 library target，明确 `provider_bundle=NOT_CREATED`、`extension_activation=NOT_REQUESTED`。
+新增 `external-flow-test` 和 `external-flow-build`。FLOW-01B 进一步复用项目既有 System Extension Xcode 结构，生成独立 Flow Probe App 与嵌入的 Transparent Proxy `.systemextension`，默认 unsigned，仅编译/链接并核对 provider class 映射、arm64 可执行文件和 bundle 形态；仍明确 `extension_activation=NOT_REQUESTED`、`flow_copying=NOT_IMPLEMENTED`。
 
 ## 验证边界
 
 ExternalFlowCore 新增 5 项 XCTest 源码：应用/域名/IP first-match、hostname 缺失不误匹配、APP 未解析稳定身份阻断、停用 APP 不要求绑定、probe report 只含计数。另有 3 项 Python 合同测试，检查本地依赖、provider 始终 pass-through、没有 flow copying API，以及 builder 不安装/执行。
 
-当前执行环境无法 clone GitHub，因此没有实际运行这些新测试，也没有 Apple SDK 类型检查。provider 源码结构已按当前 Apple API 编写，但只有在用户 Mac 完成 `external-flow-build` 后才能称为原生编译通过；真正的 Transparent Proxy bundle、entitlement、manager 配置和真机 metadata 观察均未实现/验收。
+当前执行环境无法 clone GitHub，因此没有实际运行这些新测试，也没有 Apple SDK 类型检查。provider 源码结构及 unsigned systemextension 生成器已按当前 Apple API 编写，但只有在用户 Mac 完成 `external-flow-build` 后才能称为原生编译/链接通过；签名 entitlement 接受、Transparent Proxy manager 配置、扩展激活和真机 metadata 观察仍未验收。
 
 ## 下一步
 
