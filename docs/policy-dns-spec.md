@@ -23,6 +23,8 @@ IP 路由不携带原始 hostname。NEDNSSettings.matchDomains 选择解析域�
 | DOMAIN | 标准化后的完整域名相等 | 仅 DNS-derived 地址分流，显式 opt-in |
 | DOMAIN-SUFFIX | 域名等于后缀，或以点分隔的子域 | 仅 Managed 的固定 CIDR 覆盖组合 |
 | MATCH | 未匹配时的默认动作 | 配置内用 defaultAction 表示，不再存一条重复 MATCH |
+| DOMAIN-KEYWORD | 标准化 hostname 包含关键字 | 仅 Flow Bypass 候选；Route Bypass 不执行 |
+| APPLICATION | 用户模糊搜索软件名后解析到稳定应用身份 | 仅 Flow Bypass 候选；未解析身份不得执行 |
 | IP-CIDR6 | IPv6 CIDR | 可解析为禁用草稿；v0.1 不执行 |
 
 动作是 DIRECT、VPN；REJECT 保留在模型，但启用时返回不支持。不能用一个不可达网关假装实现 REJECT。
@@ -77,7 +79,17 @@ b.example -> DIRECT -> 198.51.100.10
 
 控制面例外不能以“隐藏高优先级规则”消失在 UI 中。默认规则与已声明的必要例外可以共同组成计划；与用户明确相反的目的地址要求冲突时阻断。
 
-## 5. DNS 模式
+## 5. External 的 Route Bypass 与 Flow Bypass
+
+External 现在明确分成两个执行层：现有 Route Bypass 继续以目的 IPv4 路由作为低风险基础能力；新增 Flow Bypass 作为 DOMAIN-SUFFIX、DOMAIN-KEYWORD 和应用规则的研究/实现方向。两者共用规则顺序和状态模型，但不能互相伪装能力。
+
+Flow Bypass 首选研究 macOS NETransparentProxyProvider：系统把匹配流交给 provider，provider 可根据来源应用或目标信息决定处理或放行；匹配 DIRECT 的流只有在能创建并验证绑定当前物理接口的出站连接时才算可执行。普通系统路由、非匹配流和原第三方 VPN 保持原状。该方案必须单独验证与第三方 VPN、DNS、UDP/QUIC、睡眠/切网及签名授权共存，未通过前 APPLICATION/DOMAIN-* 规则只能保存和诊断。
+
+应用规则的 UI 允许按软件显示名模糊搜索，但保存执行身份优先使用 bundle/signing identifier；显示名和模糊搜索词只作为用户输入与诊断信息。任意 PROCESS-NAME-WILDCARD/正则兼容放到后续高级能力，不作为首个可用版本的稳定身份。
+
+Route Bypass 对启用的 flow-only 规则必须整体返回能力不支持，不得只取其中 IP-CIDR 继续执行。精确 DOMAIN 若以后提供 DNS-derived Route 模式，也必须明确其共享 IP、TTL、DoH 和 CDN 限制，不能与 Flow hostname 匹配混为同一种保证。
+
+## 6. DNS 模式
 
 ### 5.1 Managed Include
 
@@ -97,17 +109,17 @@ S2 必须分别验证默认路由表示方式和 resolver 的实际选取，不�
 
 只读观察第三方 resolver 配置，不写系统全局 DNS、不创建 /etc/resolver 文件、不删除第三方 resolver、不主动清空系统 DNS 缓存。名称解析采用当前系统选择的 resolver；数据 DIRECT 与 DNS DIRECT 是不同能力。
 
-## 6. 精确 DOMAIN：DNS-derived 模式
+## 7. 精确 DOMAIN：DNS-derived 模式
 
 此模式是基于已获得地址的全局目的 IP 分流，不是按连接携带的 hostname 分流。首次使用需确认：共享 IP 会扩大影响，应用独立解析、旧缓存、CDN 差异和 IPv6 会导致覆盖缺口。
 
-### 6.1 实现目标
+### 7.1 实现目标
 
 对显式配置的精确名称，NameResolutionService 使用系统解析选择进行初次解析和更新，返回原始问题名、A/AAAA、CNAME 链（可获得时）、有效期来源、时间和网络 epoch。不假定系统 DNS 配置快照就是每条查询的实际 resolver 证据；不能观测到的信息标为 unknown。
 
 S2 首选验证系统 DNS-SD/解析接口的记录通知与 TTL 获取能力。具体 API 和线程模型在证据中固定。如果实现只能得到 getaddrinfo 风格的地址快照而没有可信更新/有效期，就不能把随意定时刷新称为 TTL 正确实现，也不能通过自动 DOMAIN 验收。
 
-### 6.2 生命周期
+### 7.2 生命周期
 
 1. 解析成功并满足地址族、配置可达性、冲突和资源限制后，将地址集合编译成带来源的 /32 路由。
 2. 每条映射记录 ruleId、原名、地址、resolver 证据、获得时间、有效期、epoch 和 generation。AAAA 用于覆盖警告，不自动安装 IPv6 路由。
@@ -119,13 +131,13 @@ S2 首选验证系统 DNS-SD/解析接口的记录通知与 TTL 获取能力。�
 
 到期撤回后连接按剩余规则和默认路由处理，不提供 fail-closed。已经建立的连接、应用自己保存的 DNS 缓存不会随路由表同步失效；以新建连接为验收对象。
 
-### 6.3 明确不覆盖的情况
+### 7.3 明确不覆盖的情况
 
 应用 DoH/DoT、硬编码 IP、代理/Private Relay、自带 DNS 缓存、查询得到不同 CDN 地址、未知共享 IP、应用绑定接口、IPv6 和既有连接可能不遵循本应用的名称映射。不得记录为精确命中成功。
 
 不通过全量 DNS 劫持或 Packet Tunnel 内置伪 DNS 服务偷偷扩大范围。若后续要实现任意后缀自动发现，必须另立 DNS Proxy/透明代理等架构 ADR，并验证 macOS、签名、第三方共存和隐私影响。
 
-## 7. DOMAIN-SUFFIX：固定网段覆盖组合
+## 8. DOMAIN-SUFFIX：固定网段覆盖组合
 
 v0.1 仅为 Managed 提供“企业域 + 明确 CIDR + VPN DNS”组合：
 
@@ -139,7 +151,7 @@ v0.1 仅为 Managed 提供“企业域 + 明确 CIDR + VPN DNS”组合：
 
 配置不得只填一个后缀就宣称系统已经知道所有子域。无 coverageCIDRs 的后缀数据路由规则拒绝激活；仅 DNS 域选择应放在 DNS 配置中，不伪装成数据路由规则。发现企业名称落在声明范围外时诊断需指出，由用户明确更新范围。
 
-## 8. IPv6 与断线合同
+## 9. IPv6 与断线合同
 
 v0.1 的可执行数据路由范围为已验收的 IPv4。IPv6 未管理的默认选项名为 unmanaged-with-warning，不是 DIRECT 保证：真实去向仍可能受系统或原客户端影响。
 
@@ -151,7 +163,7 @@ v0.1 的可执行数据路由范围为已验收的 IPv4。IPv6 未管理的默�
 
 不主动把 VPN 规则改成 DIRECT，并不等于系统不会在隧道消失后直连。扩展崩溃、认证失败、租约到期、规则过期和卸载均不提供系统级阻断；UI 不使用“绝不泄漏”描述。
 
-## 9. 配置合同与示例
+## 10. 配置合同与示例
 
 运行时存储采用带 schemaVersion 的类型化 JSON，不把类似 mihomo 的字符串列表当内部真相。规则文本导入仅为将来的 UI 便利，不承诺 mihomo 兼容。未知版本阻断，迁移先备份安全元数据；秘密值不出现在 JSON。
 
@@ -184,7 +196,7 @@ v0.1 的可执行数据路由范围为已验收的 IPv4。IPv6 未管理的默�
 
 初始工程保护阈值：最多 1,000 条用户规则、256 个活动精确域名、每名 32 个活动地址、编译后 2,048 条路由；这是待 S2/S4 压测的设计上限，不是性能成绩。超限阻断而非截断。更改阈值须更新测试和文档。
 
-## 10. 稳定诊断代码
+## 11. 稳定诊断代码
 
 E_CAPABILITY_UNSUPPORTED、E_GUARANTEE_UNSUPPORTED、E_DOMAIN_IP_CONFLICT、E_RULE_UNREPRESENTABLE、E_PEER_UNREACHABLE_RANGE、E_INFRASTRUCTURE_CONFLICT、E_DNS_UNAVAILABLE、E_DNS_MAPPING_EXPIRED、E_NETWORK_EPOCH_CHANGED、E_EXTERNAL_ENFORCED_OR_CONFLICT、E_ROUTE_OWNERSHIP_AMBIGUOUS、E_LIMIT_EXCEEDED。
 
