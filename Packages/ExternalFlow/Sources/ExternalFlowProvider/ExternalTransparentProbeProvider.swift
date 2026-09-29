@@ -33,7 +33,7 @@ public final class ExternalTransparentProbeProvider: NETransparentProxyProvider 
         settings.includedNetworkRules = [
             NENetworkRule(remoteNetworkEndpoint: nil, remotePrefix: 0,
                           localNetworkEndpoint: nil, localPrefix: 0,
-                          protocol: .any, direction: .outbound)
+                          protocol: .TCP, direction: .outbound)
         ]
         setTunnelNetworkSettings(settings, completionHandler: completionHandler)
     }
