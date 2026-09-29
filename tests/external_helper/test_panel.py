@@ -91,7 +91,10 @@ class HelperPanelTests(unittest.TestCase):
     def run_mode(self, optimization):
         panel = (ROOT / 'Packages/ExternalCore/Sources/ExternalPreview/ExternalHelperPanel.swift').read_text()
         self.assertEqual(panel.count('struct ExternalHelperPanel: View'), 1)
-        model = panel.split('struct ExternalHelperPanel: View')[0]
+        self.assertIn('struct ExternalHelperSessionPanel: View', panel)
+        self.assertIn('struct ExternalRecoveryPanel: View', panel)
+        self.assertIn('struct ExternalHelperSettingsPanel: View', panel)
+        model = panel.split('struct ExternalHelperSessionPanel: View')[0]
         client = (SOURCE / 'ExternalHelperClient.swift').read_text()
         for token in ['#if os(macOS)', '#endif', 'import SwiftUI', 'import AppKit', 'import ExternalCore', 'import ExternalControl', 'import ServiceManagement', 'import Darwin']:
             model = model.replace(token, ''); client = client.replace(token, '')
