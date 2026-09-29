@@ -56,7 +56,8 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
         var report = ExternalFlowProbeReport(); report.total = 2; report.tcp = 2
         report.withRemoteHostname = 1
         let value = ExternalFlowProbeSnapshot(configurationCount: 1, configurationEnabled: true,
-                                               connectionStatus: "connected", providerReport: report)
+                                               connectionStatus: "connected",
+                                               providerMessageStatus: "pass", providerReport: report)
         try await store.save(value)
         let reloaded = try await store.load()
         let loaded = try XCTUnwrap(reloaded)

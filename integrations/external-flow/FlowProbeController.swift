@@ -31,7 +31,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         perform {
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
             let matching = managers.filter { Self.bundleIdentifier($0) == Self.extensionID }
-            configurationStatus = matching.isEmpty ? "未保存 Transparent Proxy 配置" :
+            self.configurationStatus = matching.isEmpty ? "未保存 Transparent Proxy 配置" :
                 "已有 \(matching.count) 个本应用配置；状态 " + Self.connectionSummary(matching[0])
         }
     }
@@ -53,28 +53,28 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             manager.localizedDescription = "VPN-Splitter Flow Metadata Probe"
             manager.isEnabled = false
             try await manager.saveToPreferences()
-            configurationStatus = "探针配置已保存但未启用；没有启动 Transparent Proxy。"
+            self.configurationStatus = "探针配置已保存但未启用；没有启动 Transparent Proxy。"
         }
     }
 
     func startProbe() {
         perform {
-            var manager = try Self.requireManager()
+            var manager = try await Self.requireManager()
             if !manager.isEnabled {
                 manager.isEnabled = true
                 try await manager.saveToPreferences()
-                manager = try Self.requireManager()
+                manager = try await Self.requireManager()
             }
             try manager.connection.startVPNTunnel()
-            configurationStatus = "已请求启动 TCP metadata 探针；provider 仍对所有 flow 返回 false。"
+            self.configurationStatus = "已请求启动 TCP metadata 探针；provider 仍对所有 flow 返回 false。"
         }
     }
 
     func stopProbe() {
         perform {
-            let manager = try Self.requireManager()
+            let manager = try await Self.requireManager()
             manager.connection.stopVPNTunnel()
-            configurationStatus = "已请求停止 metadata 探针；保留配置和 system extension 安装状态。"
+            self.configurationStatus = "已请求停止 metadata 探针；保留配置和 system extension 安装状态。"
         }
     }
 
@@ -85,7 +85,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
                 manager.connection.stopVPNTunnel()
                 try await manager.removeFromPreferences()
             }
-            configurationStatus = "已移除本应用 Transparent Proxy 配置；未停用 system extension。"
+            self.configurationStatus = "已移除本应用 Transparent Proxy 配置；未停用 system extension。"
         }
     }
 
@@ -107,9 +107,9 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             let store = try ExternalFlowProbeSnapshotStore.applicationStore()
             try await store.save(snapshot)
             if let report = attempt.1 {
-                configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
+                self.configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
             } else {
-                configurationStatus = "已发布配置/连接状态；provider message=" + (attempt.0 ?? "not_attempted") + "。"
+                self.configurationStatus = "已发布配置/连接状态；provider message=" + (attempt.0 ?? "not_attempted") + "。"
             }
         }
     }

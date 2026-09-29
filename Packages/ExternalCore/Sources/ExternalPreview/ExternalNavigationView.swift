@@ -224,7 +224,7 @@ struct ExternalSessionPage: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("VPN：\(preview.topology.pattern.rawValue) / \(preview.topology.tunnelInterface)")
                             ForEach(preview.proposals) { item in
-                                Text("\(item.destination) → \(item.gateway) / \(item.interface) · \(item.disposition.rawValue)")
+                                Text("\(String(describing: item.destination)) → \(String(describing: item.gateway)) / \(item.interface) · \(item.disposition.rawValue)")
                                     .font(.system(.body, design: .monospaced))
                             }
                         }.frame(maxWidth: .infinity, alignment: .leading)

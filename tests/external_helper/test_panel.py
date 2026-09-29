@@ -17,7 +17,11 @@ protocol ObservableObject: AnyObject {}
     func runModal() -> Response { .alertFirstButtonReturn }
 }
 enum ExternalProfileError: String, Error { case staleRevision }
-struct SavedProfile: Equatable, Sendable { var id = UUID(); var enabledRulesText = "198.51.100.7/32" }
+struct SavedProfile: Equatable, Sendable {
+    var id = UUID()
+    var enabledRulesText = "198.51.100.7/32"
+    func routeExecutionRulesText() throws -> String { enabledRulesText }
+}
 struct Workspace: Equatable, Sendable { var selected: SavedProfile? = SavedProfile(); var revision: UUID? = UUID() }
 struct Editor { var mustReload = false; var workspace: Workspace }
 @MainActor final class ExternalProfilesModel {

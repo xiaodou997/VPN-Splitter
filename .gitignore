@@ -25,6 +25,7 @@ __pycache__/
 *.py[cod]
 
 # Signing metadata remains on the developer's Mac.
+cert/
 apps/macos/Config/Signing.local.xcconfig
 *.xcuserstate
 xcuserdata/

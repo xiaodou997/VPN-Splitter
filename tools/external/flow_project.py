@@ -64,7 +64,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         objects[gen.ident(role + ".target")]["packageProductDependencies"] = []
 
     for role, source_names in (("app", ("FlowProbeApp.swift", "FlowProbeController.swift")),
-                               ("tunnel", ("FlowProbeMain.swift",))):
+                               ("tunnel", ("main.swift",))):
         for source_name in source_names:
             source = root / "integrations/external-flow" / source_name
             ref = add(role + "." + source_name + ".source", isa="PBXFileReference",
