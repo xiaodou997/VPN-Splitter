@@ -14,6 +14,7 @@
 
 - `external-helper-test`：ExternalControl Debug/Release、14 项 Python/原生合同测试通过。
 - 新增诊断场景后 `tests/external_helper/test_client.py` Debug/优化构建通过，覆盖上述四类失败及不发送/不重复发送请求。这里的系统接口为替身，不是实际签名验收。
+- 2026-10-01 继续收窄真实 XPC 失败面：客户端不再把 Foundation 的代理错误统一折叠为 disconnected，而是区分 code-signing requirement 拒绝、interrupted、invalid、reply invalid 与其他 transport；中断/失效 handler 也保留各自类别。没有自动重试、没有放宽签名要求、没有新增任何路由/DNS 写入。对应原生客户端替身回归新增五类错误场景；Mac 真机只读复验仍待执行。
 - 本机忽略目录中的匿名 NSXPC 实验完成 hello→第二次请求；身份与服务注册使用本地替身，不连接特权服务，不能作为 Helper 验收。
 - Developer ID 原生构建通过，路由试验禁用。候选 `.local/external/control.c1wj8svq/VPN-Splitter-ExternalControl.app` 为避免同时更换服务端，已复制当前安装版的原 Helper 二进制，并重新签名主 App、严格校验通过。
 - 新候选公证最初因既有 profile 无法读取而阻断；用户在本机重新保存凭据后，提交 `e68185c3-0fbb-4893-96a1-87983c0366a2` 返回 Accepted，staple/validate 通过。归档 SHA-256：`978f531283bb2b8b97a92f0a70c7fd0d497b4be3637fdafbec646f19b5b6821b`。

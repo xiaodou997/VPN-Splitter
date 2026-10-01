@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'Packages/ExternalControl/Sources/ExternalControl'
 FAKES = r'''
 public protocol ExternalHelperXPC { func request(_ data: Data, reply: @escaping @Sendable (Data) -> Void) }
+public let NSXPCConnectionInterrupted = 4101
+public let NSXPCConnectionInvalid = 4102
+public let NSXPCConnectionReplyInvalid = 4103
+public let NSXPCConnectionCodeSigningRequirementFailure = 4104
 public extension ExternalControlIdentity { static func currentTeam(helper: Bool) throws -> String { "ABCDE12345" } }
 final class MockState: @unchecked Sendable {
     static let shared = MockState()
@@ -30,7 +34,11 @@ final class MockProxy: ExternalHelperXPC {
         let state = MockState.shared
         let mode = state.noteSend()
         if mode == 2 { return }
-        if mode == 4 { fail(NSError(domain: "synthetic", code: 1)); return }
+        if mode == 4 { fail(NSError(domain: "synthetic", code: 4999)); return }
+        if mode == 7 { fail(NSError(domain: "synthetic", code: NSXPCConnectionCodeSigningRequirementFailure)); return }
+        if mode == 8 { fail(NSError(domain: "synthetic", code: NSXPCConnectionInterrupted)); return }
+        if mode == 9 { fail(NSError(domain: "synthetic", code: NSXPCConnectionInvalid)); return }
+        if mode == 10 { fail(NSError(domain: "synthetic", code: NSXPCConnectionReplyInvalid)); return }
         let request = try! ExternalControlRequest.decode(data)
         var result = ExternalControlResult(state.active ? .active : .idle)
         if request.action == .prepare { result = .init(.prepared) }
@@ -126,7 +134,23 @@ HARNESS = r'''
         case "errorhandler":
             _ = try await client.connect(); state.mode = 4
             do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("proxy error ignored") }
-            catch { check(!client.isConnected) }
+            catch { check((error as? ExternalControlError) == .xpcTransport && !client.isConnected) }
+        case "xpc-signing-error":
+            _ = try await client.connect(); state.mode = 7
+            do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("signing error ignored") }
+            catch { check((error as? ExternalControlError) == .xpcCodeSigningRejected && !client.isConnected) }
+        case "xpc-interrupted-error":
+            _ = try await client.connect(); state.mode = 8
+            do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("interruption ignored") }
+            catch { check((error as? ExternalControlError) == .xpcInterrupted && !client.isConnected) }
+        case "xpc-invalid-error":
+            _ = try await client.connect(); state.mode = 9
+            do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("invalid connection ignored") }
+            catch { check((error as? ExternalControlError) == .xpcInvalid && !client.isConnected) }
+        case "xpc-reply-error":
+            _ = try await client.connect(); state.mode = 10
+            do { _ = try await client.send(.init(.status, instance: client.instance)); fatalError("invalid reply ignored") }
+            catch { check((error as? ExternalControlError) == .xpcReplyInvalid && !client.isConnected) }
         case "unregister":
             try await client.unregisterAfterCleanStatus()
             check(state.sent == 3 && state.unregistered == 1 && !client.isConnected)
@@ -155,7 +179,7 @@ class NativeClientTests(unittest.TestCase):
             compile = subprocess.run(['swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-warnings-as-errors',
                 optimization, '-parse-as-library', str(source), '-o', str(exe)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compile.returncode, 0, compile.stdout + compile.stderr)
-            for scenario in ['missing-channel', 'service-disabled', 'proxy-unavailable', 'roundtrip', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'unregister', 'active-unregister']:
+            for scenario in ['missing-channel', 'service-disabled', 'proxy-unavailable', 'roundtrip', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'xpc-signing-error', 'xpc-interrupted-error', 'xpc-invalid-error', 'xpc-reply-error', 'unregister', 'active-unregister']:
                 with self.subTest(scenario=scenario):
                     run = subprocess.run([str(exe), scenario], capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

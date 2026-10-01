@@ -54,8 +54,8 @@ public final class ExternalHelperClient {
         channel.setCodeSigningRequirement(try ExternalControlIdentity.requirement(team: team, helper: true))
         channel.remoteObjectInterface = NSXPCInterface(with: ExternalHelperXPC.self)
         let id = UUID(); generation = id
-        channel.interruptionHandler = { [weak self] in Task { @MainActor [weak self] in self?.failed(id, error: .disconnected) } }
-        channel.invalidationHandler = { [weak self] in Task { @MainActor [weak self] in self?.failed(id, error: .disconnected) } }
+        channel.interruptionHandler = { [weak self] in Task { @MainActor [weak self] in self?.failed(id, error: .xpcInterrupted) } }
+        channel.invalidationHandler = { [weak self] in Task { @MainActor [weak self] in self?.failed(id, error: .xpcInvalid) } }
         connection = channel; channel.resume()
         do {
             // No rules are sent until an authenticated round trip and kernel root UID check.
@@ -78,8 +78,11 @@ public final class ExternalHelperClient {
                 do { try await Task.sleep(for: .seconds(25)) } catch { return }
                 self?.failed(id, error: .timeout)
             }
-            let remote = connection.remoteObjectProxyWithErrorHandler { [weak self] _ in
-                Task { @MainActor [weak self] in self?.failed(id, error: .disconnected) }
+            let remote = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.failed(id, error: self.xpcError(error))
+                }
             }
             guard let proxy = remote as? ExternalHelperXPC else { failed(id, error: .proxyUnavailable); return }
             proxy.request(data) { [weak self] bytes in
@@ -94,6 +97,15 @@ public final class ExternalHelperClient {
         guard generation == id, !Task.isCancelled else { throw ExternalControlError.disconnected }
         do { return try ExternalControlReply.decode(response, request: request) }
         catch { close(); throw ExternalControlError.invalidResponse }
+    }
+    private func xpcError(_ error: any Error) -> ExternalControlError {
+        switch (error as NSError).code {
+        case NSXPCConnectionCodeSigningRequirementFailure: return .xpcCodeSigningRejected
+        case NSXPCConnectionInterrupted: return .xpcInterrupted
+        case NSXPCConnectionInvalid: return .xpcInvalid
+        case NSXPCConnectionReplyInvalid: return .xpcReplyInvalid
+        default: return .xpcTransport
+        }
     }
     public func close() {
         generation = UUID(); instance = nil; deadline?.cancel(); deadline = nil

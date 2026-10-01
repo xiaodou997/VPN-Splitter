@@ -5,6 +5,7 @@ public enum ExternalControlError: String, Error, Sendable {
     case invalidRequest, invalidResponse, unavailable, authentication, busy, expired
     case staleSelection, trialDisabled, recoveryRequired, disconnected, timeout
     case serviceNotEnabled, channelMissing, requestInFlight, proxyUnavailable
+    case xpcCodeSigningRejected, xpcInterrupted, xpcInvalid, xpcReplyInvalid, xpcTransport
 }
 public enum ExternalControlAction: String, Codable, Sendable { case hello, prepare, apply, status, stop, recoveryAudit, recoveryClear, quiesce }
 public enum ExternalControlState: String, Codable, Sendable {
