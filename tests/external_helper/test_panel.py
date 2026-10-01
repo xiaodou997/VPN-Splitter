@@ -54,7 +54,12 @@ HARNESS = r'''
         let helper = ExternalHelperModel()
         check(fixture.opened == 0 && fixture.sent == 0)
         let scenario = CommandLine.arguments[1]
-        if scenario == "dirty" {
+        if scenario == "probe" {
+            helper.probeTransport(); try await wait { !helper.busy }
+            check(fixture.opened == 1 && fixture.sent == 2)
+            check(helper.response?.result.state == .idle)
+            check(helper.message.contains("通信只读探针通过") && !helper.cleanupUnconfirmed)
+        } else if scenario == "dirty" {
             profiles.hasUnsavedChanges = true
             helper.prepare(profiles); try await wait { !helper.busy }
             check(fixture.opened == 0 && helper.message.contains("staleSelection"))
@@ -110,7 +115,7 @@ class HelperPanelTests(unittest.TestCase):
             compiled = subprocess.run(['swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-warnings-as-errors',
                 optimization, '-parse-as-library', str(file), '-o', str(binary)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            for scenario in ['dirty', 'apply-stop', 'disk-changed', 'cancel-pending', 'edit-invalidates', 'recovery']:
+            for scenario in ['probe', 'dirty', 'apply-stop', 'disk-changed', 'cancel-pending', 'edit-invalidates', 'recovery']:
                 with self.subTest(scenario=scenario):
                     run = subprocess.run([str(binary), scenario], capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

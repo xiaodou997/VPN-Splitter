@@ -29,6 +29,18 @@ final class ExternalHelperModel: ObservableObject {
             response?.result.recoveryPresent == 0
     }
     func refresh() { registration = client.registrationStatus() }
+    func probeTransport() {
+        guard !busy, !cleanupUnconfirmed else { return }
+        invalidate()
+        perform { [self] in
+            let hello = try await client.connect()
+            let status = try await client.send(.init(.status, instance: client.instance))
+            guard status.instance == hello.instance else { throw ExternalControlError.invalidResponse }
+            response = status
+            message = "Helper 通信只读探针通过：签名校验、root 对端检查、hello 与 status 往返均成功；服务状态 (status.result.state.rawValue) / (status.result.code)。没有应用路由。"
+            client.close()
+        }
+    }
     func register() {
         let alert = NSAlert(); alert.messageText = "向系统申请注册 External Helper？"
         alert.informativeText = "需要独立签名的控制版放在 /Applications，并由管理员在系统设置批准。此操作不会应用路由。"
@@ -263,6 +275,8 @@ struct ExternalHelperSettingsPanel: View {
                 LabeledContent("注册状态") { Text(helper.registration) }
                 HStack {
                     Button("检查状态") { helper.refresh() }
+                    Button("测试 Helper 通信（只读）") { helper.probeTransport() }
+                        .disabled(helper.cleanupUnconfirmed)
                     Button("申请系统授权") { helper.register() }
                     Button("打开系统设置") { helper.openSettings() }
                     Button("注销 Helper") { helper.unregister() }.disabled(helper.cleanupUnconfirmed)

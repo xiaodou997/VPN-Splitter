@@ -53,6 +53,8 @@ class HelperContracts(unittest.TestCase):
         self.assertIn('ExternalRecoveryPanel(helper: helper)', navigation)
         self.assertIn('helper.invalidate()', app); self.assertIn('control?.confirmQuit()', app)
         self.assertIn('let disk = try await store.load()', panel)
+        self.assertIn('func probeTransport()', panel)
+        self.assertIn('测试 Helper 通信（只读）', panel)
         self.assertIn('disk == before', panel); self.assertIn('cleanupUnconfirmed = true', panel)
         self.assertIn('profile: selected.0, revision: selected.1, ticket: ticket', panel)
         self.assertNotIn('sudo ', panel)
