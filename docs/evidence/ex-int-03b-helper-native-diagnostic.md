@@ -22,3 +22,16 @@
 - 普通权限覆盖安装被系统拒绝，随后交由用户在终端管理员更新。独立检查确认 `/Applications` 下控制 App、Helper、签名资源与候选完全一致，strict codesign 和公证票据验证通过；Helper 二进制仍与更新前相同。新控制 App 已启动，待用户反馈只读复验。
 
 当前根因未定位。此提交提供诊断能力，不宣称修复首次 unavailable；下一步取得明确错误类别，再针对性修复。旧版本签名/公证成功证据保留。
+
+## 2026-10-13 真机定位：协议代际不匹配（非签名/非 XPC 传输）
+
+在 `bb60cf3`（外加 panel 替身修复 `bf3b91d`）上完成本机复验：
+
+1. 修复一处先行存在的离线回归失败：`tests/external_helper/test_panel.py` 的 recovery 场景复用替身 mode 5，与 `0b46271` 引入的“mode 5 = 代理不可用”冲突，apply 未发出即前置失败；改用空闲 mode 11 后 `external-helper-test` 全绿（Swift 26/26、Python 14/14）。
+2. Developer ID 构建通过；按既有做法保留当前安装版 Helper 二进制、重签主 App，strict/团队要求/安全时间戳校验通过，安装至 /Applications（无 quarantine，未公证；普通权限替换成功，旧版备份在 `.local/external/installed-backup-20261013.app`）。
+3. GUI 点击“测试 Helper 通信（只读）”：注册状态 enabled，结果为 `操作未完成：authentication`。系统日志确认 Helper 接受连接、完成代码签名检查，连接由客户端正常关闭。
+4. 一次性只读探针（同标识 Developer ID 签名，hello+status，无规则/无写入）逐级打印：对端 euid=0 通过，但 hello 回包为 `refused/invalidRequest`。改用 backup 线协议（每请求携带递增 sequence，hello=1、status=2）后同一 Helper 返回 `idle/none` + `idle/none`，PROBE=PASS。
+
+结论：签名、root 校验、XPC 传输与 Helper 服务全部正常。真正原因：**当前安装的 Helper 是 backup 线 sustained 构建，要求每个请求携带 sequence；main 线（`bb60cf3`）客户端无 sequence 字段，hello 被拒为 invalidRequest，客户端把 hello 的 refused 统一映射为 `authentication`**。9 月 30 日 USER_REPORTED PASS 的往返发生在两条线协议一致时。
+
+待办：把 backup 线（保留在 `backup/main-local-31commits-f2d3690`）的 sequence/sustained 协议与面板修复整合进 main，使客户端与已安装 Helper 重新同代，再复测本探针与 GUI 只读入口。探针二进制与源码为 /tmp 一次性产物，未入仓库、未保留。
