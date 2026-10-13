@@ -85,7 +85,7 @@ HARNESS = r'''
                 helper.invalidate(); helper.apply(profiles)
                 check(fixture.sent == 2 && helper.response == nil && !helper.canApply)
             case "recovery":
-                fixture.mode = 5; helper.apply(profiles); try await wait { !helper.busy }
+                fixture.mode = 11; helper.apply(profiles); try await wait { !helper.busy }
                 check(helper.response?.result.state == .recoveryRequired && helper.cleanupUnconfirmed)
                 helper.prepare(profiles); check(fixture.sent == 3)
             default: fatalError("unknown fixture")
@@ -107,7 +107,7 @@ class HelperPanelTests(unittest.TestCase):
         client = (SOURCE / 'ExternalHelperClient.swift').read_text()
         for token in ['#if os(macOS)', '#endif', 'import SwiftUI', 'import AppKit', 'import ExternalCore', 'import ExternalControl', 'import ServiceManagement', 'import Darwin']:
             model = model.replace(token, ''); client = client.replace(token, '')
-        fake = FAKES.replace('if request.action == .prepare', 'if request.action == .apply { state.active = true; result = .init(mode == 5 ? .recoveryRequired : .active) }\n        if request.action == .prepare', 1)
+        fake = FAKES.replace('if request.action == .prepare', 'if request.action == .apply { state.active = true; result = .init(mode == 11 ? .recoveryRequired : .active) }\n        if request.action == .prepare', 1)
         source = (SOURCE / 'ExternalControlWire.swift').read_text() + (SOURCE / 'ExternalControlIdentity.swift').read_text().split('#if os(macOS)')[0]
         with tempfile.TemporaryDirectory(prefix='external-helper-panel-') as directory:
             root = Path(directory); file = root / 'Harness.swift'; binary = root / 'test-panel'
