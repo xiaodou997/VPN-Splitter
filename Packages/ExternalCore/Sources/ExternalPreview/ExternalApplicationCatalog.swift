@@ -29,14 +29,8 @@ actor ExternalApplicationCatalog {
         }
         var bySigningID: [String: ExternalInstalledApplication] = [:]
         for root in roots where manager.fileExists(atPath: root.path) {
-            guard let enumerator = manager.enumerator(
-                at: root,
-                includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
-                options: [.skipsHiddenFiles, .skipsPackageDescendants]
-            ) else { continue }
-            while let item = enumerator.nextObject() as? URL {
-                guard item.pathExtension.caseInsensitiveCompare("app") == .orderedSame,
-                      let candidate = Self.inspect(item) else { continue }
+            for item in Self.candidateURLs(in: root) {
+                guard let candidate = Self.inspect(item) else { continue }
                 let old = bySigningID[candidate.signingIdentifier]
                 if old == nil || candidate.displayName.localizedStandardCompare(old!.displayName) == .orderedAscending {
                     bySigningID[candidate.signingIdentifier] = candidate
@@ -47,6 +41,34 @@ actor ExternalApplicationCatalog {
             let order = $0.displayName.localizedStandardCompare($1.displayName)
             return order == .orderedSame ? $0.signingIdentifier < $1.signingIdentifier : order == .orderedAscending
         }
+    }
+
+    /// Foundation's recursive enumerator omits some directory symlinks, including
+    /// Safari on macOS 26. Include only immediate .app links, without traversing
+    /// arbitrary linked directories or package contents. Every candidate is still
+    /// checked by Security.framework before exposing an identity.
+    static func candidateURLs(in root: URL) -> Set<URL> {
+        let manager = FileManager.default
+        var candidates: Set<URL> = []
+        if let entries = try? manager.contentsOfDirectory(at: root,
+            includingPropertiesForKeys: [.isSymbolicLinkKey], options: []) {
+            // Safari's system link also carries UF_HIDDEN. Do not exclude that
+            // metadata flag, but retain the exclusion of explicitly dot-hidden names.
+            for item in entries where !item.lastPathComponent.hasPrefix(".") &&
+                item.pathExtension.caseInsensitiveCompare("app") == .orderedSame {
+                if (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true {
+                    candidates.insert(item)
+                }
+            }
+        }
+        if let enumerator = manager.enumerator(at: root,
+            includingPropertiesForKeys: [.isDirectoryKey, .isPackageKey],
+            options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
+            while let item = enumerator.nextObject() as? URL {
+                if item.pathExtension.caseInsensitiveCompare("app") == .orderedSame { candidates.insert(item) }
+            }
+        }
+        return candidates
     }
 
     private static func inspect(_ url: URL) -> ExternalInstalledApplication? {
