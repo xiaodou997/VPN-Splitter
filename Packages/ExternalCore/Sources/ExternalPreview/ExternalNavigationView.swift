@@ -259,7 +259,19 @@ struct ExternalFlowPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ExternalPageHeader(title: "Flow 实验",
-                    subtitle: "验证按应用和域名识别 flow 的能力；当前探针始终放行，不复制或改写真实流量。")
+                    subtitle: "验证按应用和域名识别并直连 TCP flow 的能力；FLOW-02 数据面已实现，真机验证前不宣称可用。")
+                GroupBox("FLOW-02 · DIRECT relay 试验通道") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Button("导出 DIRECT 规则到 Flow 桥") {
+                                if let draft = profiles.editor.draft { flowBridge.exportRules(profile: draft) }
+                            }
+                            .disabled(flowBridge.busy || profiles.editor.draft == nil)
+                        }
+                        Text("导出只写本机 Flow 桥文件（仅试验通道，不含凭据或流量内容）；之后到 Flow Probe App 点「重载规则并更新探针配置」，重启探针后生效。匹配 DIRECT 的 TCP flow 将由 provider 经物理接口直连，失败即关闭，不回退到 VPN。")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
                 GroupBox("FLOW-01D · 探针状态") {
                     VStack(alignment: .leading, spacing: 10) {
                         LabeledContent("当前方案 Flow 规则") { Text("\(flowRules)") }
@@ -278,6 +290,15 @@ struct ExternalFlowPage: View {
                                 LabeledContent("带 remote endpoint") { Text("\(report.withRemoteEndpoint)") }
                                 LabeledContent("App 身份可观察") { Text(report.appIdentityObservable ? "部分可见" : "未证实") }
                                 LabeledContent("Hostname 可观察") { Text(report.hostnameObservable ? "部分可见" : "未证实") }
+                                Divider()
+                                LabeledContent("DIRECT 规则已装载") { Text("\(report.rulesLoaded)") }
+                                LabeledContent("Relay 开始 / 进行中") { Text("\(report.relayStarted) / \(report.relayActive)") }
+                                LabeledContent("Relay 完成 / 失败 / 取消") {
+                                    Text("\(report.relayCompleted) / \(report.relayFailed) / \(report.relayCancelled)")
+                                }
+                                LabeledContent("因接口/上限拒绝") {
+                                    Text("\(report.relayRefusedInterface) / \(report.relayRefusedLimit)")
+                                }
                             } else {
                                 Text("当前快照没有 provider 运行报告；可能未启动、未连接，或连接对象不支持 provider message。")
                                     .font(.caption).foregroundStyle(.secondary)
@@ -291,10 +312,10 @@ struct ExternalFlowPage: View {
                 }
                 GroupBox("能力边界") {
                     VStack(alignment: .leading, spacing: 8) {
-                        LabeledContent("TCP metadata 探针") { Text("pass-through") }
-                        LabeledContent("DIRECT flow copying") { Text("未实现") }
+                        LabeledContent("TCP DIRECT relay") { Text("已实现（试验，真机未验证）") }
                         LabeledContent("UDP / QUIC") { Text("后续单独验证") }
-                        Text("主程序只读 Flow Probe App 发布的脱敏本机快照，不控制其 Network Extension 配置。")
+                        LabeledContent("未匹配 flow") { Text("交还系统 / 原 VPN 路径") }
+                        Text("主程序只读 Flow Probe App 发布的脱敏本机快照，并只在显式点击时导出规则到本机 Flow 桥；不控制其 Network Extension 配置。")
                             .font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }

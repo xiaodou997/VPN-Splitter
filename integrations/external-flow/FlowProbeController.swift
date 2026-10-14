@@ -78,6 +78,35 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
     }
 
+    /// FLOW-02 trial channel: reads the rules file the main app exported to
+    /// the user-local Flow bridge and writes it into the probe's provider
+    /// configuration. Takes effect on the next probe start; an unchanged rule
+    /// set does not rewrite preferences.
+    func reloadRules() {
+        perform {
+            let store = try ExternalFlowRulesBridgeStore.applicationStore()
+            guard let wire = try await store.load() else {
+                self.configurationStatus = "Flow 桥中没有已导出的规则；请先在主 App 的 Flow 实验页导出 DIRECT 规则。"
+                return
+            }
+            let data = try JSONEncoder().encode(wire)
+            let manager = try await Self.requireManager()
+            let provider = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+            let existing = provider.providerConfiguration?["VPNSplitterFlowRules"] as? Data
+            if existing == data {
+                self.configurationStatus = "DIRECT 规则（\(wire.rules.count) 条）与当前配置一致；未重写探针配置。"
+                return
+            }
+            provider.providerBundleIdentifier = Self.extensionID
+            provider.providerConfiguration = ["VPNSplitterFlowProbe": "metadata-only-v1",
+                                              "VPNSplitterFlowRules": data]
+            provider.serverAddress = "127.0.0.1"
+            manager.protocolConfiguration = provider
+            try await manager.saveToPreferences()
+            self.configurationStatus = "已写入 \(wire.rules.count) 条 DIRECT 试验规则；重启探针后生效。匹配 TCP flow 将由 provider 经物理接口直连。"
+        }
+    }
+
     func removeProbeConfiguration() {
         perform {
             let managers = try await NETransparentProxyManager.loadAllFromPreferences()
@@ -107,7 +136,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             let store = try ExternalFlowProbeSnapshotStore.applicationStore()
             try await store.save(snapshot)
             if let report = attempt.1 {
-                self.configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)。"
+                self.configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)；rules=\(report.rulesLoaded)，relay started/completed/failed=\(report.relayStarted)/\(report.relayCompleted)/\(report.relayFailed)。"
             } else {
                 self.configurationStatus = "已发布配置/连接状态；provider message=" + (attempt.0 ?? "not_attempted") + "。"
             }

@@ -6,6 +6,10 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / 'Packages/ExternalFlow'
 
 class ExternalFlowContracts(unittest.TestCase):
+    def provider_sources(self):
+        directory = PACKAGE / 'Sources/ExternalFlowProvider'
+        return ''.join(p.read_text() for p in sorted(directory.glob('*.swift')))
+
     def test_manifest_is_local_and_probe_only(self):
         package = json.loads(subprocess.check_output(
             ['swift', 'package', '--package-path', str(PACKAGE), 'dump-package'], text=True, timeout=30))
@@ -14,12 +18,33 @@ class ExternalFlowContracts(unittest.TestCase):
                                 (ROOT / 'Packages/ExternalFlowWire').resolve()})
         self.assertEqual({t['name'] for t in package['targets']},
                          {'ExternalFlowCore', 'ExternalFlowProvider', 'ExternalFlowCoreTests'})
-        source = (PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift').read_text()
+        source = self.provider_sources()
         for token in ['NETransparentProxyProvider', 'includedNetworkRules', 'sourceAppSigningIdentifier',
                       'remoteHostname', 'return false', 'probe-report-v1']:
             self.assertIn(token, source)
-        for token in ['NWConnection(', '.open(withLocalEndpoint:', '.readData(', '.write(']:
-            self.assertNotIn(token, source)
+
+    def test_flow02_tcp_relay_is_bounded_and_fail_closed(self):
+        provider = self.provider_sources()
+        core = (PACKAGE / 'Sources/ExternalFlowCore/ExternalFlowRelayCore.swift').read_text()
+        wire = (ROOT / 'Packages/ExternalFlowWire/Sources/ExternalFlowWire/ExternalFlowRulesWire.swift').read_text()
+        # The TCP-only DIRECT data plane exists and binds the physical interface.
+        for token in ['NWConnection(', '.open(withLocalFlowEndpoint:', 'requiredInterface',
+                      'ExternalFlowRelay(', 'NWPathMonitor']:
+            self.assertIn(token, provider)
+        # Still TCP-only: no UDP flow handler, no UDP intercept rule.
+        self.assertNotIn('handleNewUDPFlow', provider)
+        self.assertNotIn('protocol: .UDP', provider)
+        # No payload persistence or logging anywhere in the data plane.
+        for token in ['FileHandle', 'print(', 'NSLog', 'os_log', 'write(to:', 'payload']:
+            self.assertNotIn(token, provider)
+        # Bounds: concurrency limit, chunk size, idle timeout.
+        for token in ['maxConcurrent: 64', '65_536', 'idleTimeout: 75']:
+            self.assertIn(token, core)
+        for token in ['maxConcurrent', 'limitReached', 'cancel()']:
+            self.assertIn(token, core)
+        # Rules channel is structured, bounded and versioned.
+        for token in ['external-flow-rules-v1', 'maxRules = 64', 'maxTargetBytes = 512', 'validated()']:
+            self.assertIn(token, wire)
 
     def test_builder_never_installs_or_executes(self):
         path = ROOT / 'tools/external/flow-build.py'
@@ -90,7 +115,8 @@ class ExternalFlowContracts(unittest.TestCase):
         for token in ['OSSystemExtensionRequest.activationRequest', 'NETransparentProxyManager.loadAllFromPreferences',
                       'saveToPreferences()', 'startVPNTunnel()', 'stopVPNTunnel()']:
             self.assertIn(token, controller)
-        for token in ['activateExtension()', 'saveProbeConfiguration()', 'startProbe()', 'stopProbe()']:
+        for token in ['activateExtension()', 'saveProbeConfiguration()', 'startProbe()', 'stopProbe()',
+                      'reloadRules()']:
             self.assertIn(token, app)
         self.assertNotIn('.task { control.', app)
         self.assertNotIn('.onAppear', app)
@@ -100,14 +126,16 @@ class ExternalFlowContracts(unittest.TestCase):
     def test_flow01d_report_bridge_is_counts_only_and_explicit(self):
         controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
         app = (ROOT / 'integrations/external-flow/FlowProbeApp.swift').read_text()
-        provider = (PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift').read_text()
+        provider = self.provider_sources()
         bridge = (ROOT / 'Packages/ExternalCore/Sources/ExternalPreview/ExternalFlowBridgeModel.swift').read_text()
         wire = (ROOT / 'Packages/ExternalFlowWire/Sources/ExternalFlowWire/ExternalFlowProbeWire.swift').read_text()
         for token in ['sendProviderMessage', 'probe-report-v1', 'ExternalFlowProbeSnapshotStore.applicationStore',
                       'publishSnapshot()']:
             self.assertIn(token, controller + app + provider)
         for token in ['configurationCount', 'connectionStatus', 'providerReport',
-                      'withSourceSigningIdentifier', 'withRemoteHostname']:
+                      'withSourceSigningIdentifier', 'withRemoteHostname',
+                      'rulesLoaded', 'relayStarted', 'relayActive', 'relayCompleted',
+                      'relayFailed', 'relayCancelled', 'relayRefusedInterface', 'relayRefusedLimit']:
             self.assertIn(token, wire)
         for forbidden in ['hostname: String', 'signingIdentifier: String', 'ipAddress', 'remotePort', 'payload']:
             self.assertNotIn(forbidden, wire)
@@ -115,11 +143,31 @@ class ExternalFlowContracts(unittest.TestCase):
         self.assertNotIn('startVPNTunnel', bridge)
         self.assertNotIn('saveToPreferences', bridge)
 
+    def test_flow02_rules_channel_is_explicit_and_user_local(self):
+        controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
+        bridge = (ROOT / 'Packages/ExternalCore/Sources/ExternalPreview/ExternalFlowBridgeModel.swift').read_text()
+        store = (ROOT / 'Packages/ExternalFlowWire/Sources/ExternalFlowWire/ExternalFlowRulesBridgeStore.swift').read_text()
+        # Main app exports rules only via an explicit action into the user-local bridge.
+        for token in ['exportRules', 'ExternalFlowRulesBridgeStore.applicationStore', 'rulesStore.save']:
+            self.assertIn(token, bridge)
+        self.assertNotIn('startVPNTunnel', bridge)
+        self.assertNotIn('saveToPreferences', bridge)
+        # Probe app copies rules into providerConfiguration only on explicit reload.
+        for token in ['reloadRules', 'ExternalFlowRulesBridgeStore.applicationStore',
+                      'VPNSplitterFlowRules', 'saveToPreferences()']:
+            self.assertIn(token, controller)
+        # Bridge file handling stays hardened: no following symlinks, 0600, bounded.
+        for token in ['O_NOFOLLOW', '0o600', 'maximumBytes', 'renameat', 'rules.json']:
+            self.assertIn(token, store)
+        for forbidden in ['startVPNTunnel', 'NETransparentProxyManager', 'payload']:
+            self.assertNotIn(forbidden, store)
+
     def test_provider_source_parses_for_mac(self):
-        source = PACKAGE / 'Sources/ExternalFlowProvider/ExternalTransparentProbeProvider.swift'
-        p = subprocess.run(['swiftc', '-frontend', '-parse', '-target', 'arm64-apple-macos26.0', str(source)],
-                           capture_output=True, text=True, timeout=30)
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        directory = PACKAGE / 'Sources/ExternalFlowProvider'
+        for source in sorted(directory.glob('*.swift')):
+            p = subprocess.run(['swiftc', '-frontend', '-parse', '-target', 'arm64-apple-macos26.0', str(source)],
+                               capture_output=True, text=True, timeout=30)
+            self.assertEqual(p.returncode, 0, str(source) + p.stdout + p.stderr)
 
 if __name__ == '__main__':
     unittest.main()

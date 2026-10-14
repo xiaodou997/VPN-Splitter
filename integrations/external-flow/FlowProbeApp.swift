@@ -20,14 +20,19 @@ struct FlowProbeApp: App {
                         Button("保存禁用状态的探针配置") { control.saveProbeConfiguration() }
                         Button("移除探针配置") { control.removeProbeConfiguration() }
                     }.disabled(control.busy)
+                    HStack {
+                        Button("重载规则并更新探针配置") { control.reloadRules() }
+                    }.disabled(control.busy)
+                    Text("规则来自主 App「Flow 实验」页显式导出的 Flow 桥文件；无规则时 provider 保持 pass-through 探针。")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-                Section("3 · TCP metadata 探针") {
+                Section("3 · TCP 探针 / DIRECT 试验") {
                     HStack {
                         Button("启动探针") { control.startProbe() }.buttonStyle(.borderedProminent)
                         Button("停止探针") { control.stopProbe() }
                         Button("刷新并发布脱敏报告") { control.publishSnapshot() }
                     }.disabled(control.busy)
-                    Text("探针只统计 App signing ID / hostname / endpoint 是否可见；provider 对所有 flow 返回 false，不复制或改写流量。")
+                    Text("未写入规则时 provider 对所有 flow 返回 false。写入 DIRECT 规则后，匹配的 TCP flow 由 provider 经物理接口直连复制（FLOW-02 试验）；未匹配 flow 仍走系统/VPN 路径。")
                         .foregroundStyle(.secondary)
                     Text("发布只写本机用户目录中的计数/状态快照；不会写 hostname、App ID、IP、端口或报文。")
                         .font(.caption).foregroundStyle(.secondary)

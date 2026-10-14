@@ -18,7 +18,7 @@ External UI 采用侧边栏分区：概览、规则、分流会话、恢复、Fl
 
 EX-INT-01 在 Packages/ExternalCore 提供实际 macOS 只读采集、IPv4 路由形态识别和 PolicyCore DIRECT 预览。dev.sh external-run 打开独立、仅 ad-hoc 的 External 开发预览；external-build 只编译；external-test 是离线回归，无需 Go 或开发签名。原 run/test、WG/S1 源码和权限保持不变。不要把新预览说成已集成到 LocalDev 或已能应用分流。
 
-当前交付已推进至 EX-INT-03D 与 EX-FLOW-01：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；FLOW-01 只验证 Transparent Proxy 的来源应用/hostname 元数据，provider 必须默认放行且不复制流量。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
+当前交付已推进至 EX-INT-03D 与 EX-FLOW-02（数据面已实现、真机未验证）：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；FLOW-01 验证 Transparent Proxy 的来源应用/hostname 元数据，FLOW-02 按 ADR-EX-FLOW-02 实现仅 TCP 的 DIRECT relay（fail-closed、有界、纯计数报告），真机验证前 provider 默认仍是无规则的 pass-through 探针，APPLICATION/DOMAIN-* 不宣称可执行。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
 
 ## LocalDev 历史调序与持续安全边界
 

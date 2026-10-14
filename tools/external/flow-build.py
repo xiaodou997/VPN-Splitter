@@ -163,7 +163,7 @@ def main(argv: list[str] | None = None) -> int:
         digest = hashlib.sha256(binary.read_bytes()).hexdigest()
         signing = "LOCAL_DEVELOPER_ID_VERIFIED" if args.sign else "UNSIGNED"
         result_text = (
-            "schema=external-flow-build-v3\n"
+            "schema=external-flow-build-v4\n"
             "compile_link=PASS\n"
             "execution=NOT_RUN\n"
             "network_settings=NOT_APPLIED\n"
@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
             f"signing={signing}\n"
             "system_acceptance=NOT_RUN\n"
             "provider_roundtrip=NOT_RUN\n"
-            "flow_copying=NOT_IMPLEMENTED\n"
+            "flow_copying=TCP_ONLY_TRIAL\n"
             f"extension_sha256={digest}\n"
         )
         (run / "result.txt").write_text(result_text)
