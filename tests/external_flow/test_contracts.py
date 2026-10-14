@@ -99,6 +99,11 @@ class ExternalFlowContracts(unittest.TestCase):
             folder = project.parent
             info = plistlib.loads((folder / 'extension-Info.plist').read_bytes())
             self.assertTrue(info['NSSystemExtensionUsageDescription'].strip())
+            # OSSystemExtensionRequest .replace only swaps binaries when the
+            # bundle version advances; a fixed version silently keeps the old
+            # extension (observed 2026-10-14: FLOW-02 binary never installed).
+            self.assertNotEqual(info['CFBundleVersion'], '1')
+            self.assertRegex(info['CFBundleVersion'], r'^\d{8}\.\d{4}$')
             self.assertEqual(info['NetworkExtension']['NEProviderClasses']['com.apple.networkextension.app-proxy'],
                              'ExternalFlowProvider.ExternalTransparentProbeProvider')
             ent = plistlib.loads((folder / 'extension.entitlements').read_bytes())

@@ -2,6 +2,7 @@
 """Generate isolated App + Transparent Proxy system extension project for FLOW-01B."""
 from __future__ import annotations
 import copy, hashlib, importlib.util, json, os
+from datetime import datetime, timezone
 from pathlib import Path
 import plistlib
 
@@ -28,17 +29,20 @@ def generate(root: Path, run: Path, generator=None) -> Path:
             value["sourceTree"] = "<absolute>"
 
     # Generated build owns its Info/entitlement files; source files stay in repo.
+    # CFBundleVersion must increase on every build: OSSystemExtensionRequest
+    # .replace silently keeps the old binary when versions do not advance.
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d.%H%M")
     app_info = {
         "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)", "CFBundleExecutable": "$(EXECUTABLE_NAME)",
         "CFBundleName": "$(PRODUCT_NAME)", "CFBundleDisplayName": "VPN-Splitter Flow Probe",
-        "CFBundlePackageType": "APPL", "CFBundleVersion": "1", "CFBundleShortVersionString": "0.1",
+        "CFBundlePackageType": "APPL", "CFBundleVersion": stamp, "CFBundleShortVersionString": "0.1+" + stamp,
         "LSMinimumSystemVersion": "26.0", "NSPrincipalClass": "NSApplication",
         "NSSystemExtensionUsageDescription": "Validate the VPN-Splitter transparent proxy capability probe."
     }
     ext_info = {
         "CFBundleIdentifier": "$(PRODUCT_BUNDLE_IDENTIFIER)", "CFBundleExecutable": "$(EXECUTABLE_NAME)",
         "CFBundleName": "$(PRODUCT_NAME)", "CFBundleDisplayName": "VPN-Splitter Flow Probe Extension",
-        "CFBundlePackageType": "SYSX", "CFBundleVersion": "1", "CFBundleShortVersionString": "0.1",
+        "CFBundlePackageType": "SYSX", "CFBundleVersion": stamp, "CFBundleShortVersionString": "0.1+" + stamp,
         "LSMinimumSystemVersion": "26.0",
         "NSSystemExtensionUsageDescription": "Validate the VPN-Splitter transparent proxy capability probe.",
         "NetworkExtension": {"NEProviderClasses": {
