@@ -29,6 +29,9 @@ class HelperBuildTests(unittest.TestCase):
                 args = b.swift_arguments(root, run, '/synthetic sdk', helper, trial)
                 self.assertEqual('-DEXTERNAL_HELPER_ROUTE_TRIAL' in args, helper and trial)
                 self.assertIn('-warnings-as-errors', args); self.assertNotIn('run', args)
+        for helper in [False, True]:
+            sustained = b.swift_arguments(root, run, '/synthetic sdk', helper, True, True)
+            self.assertIn('-DEXTERNAL_HELPER_SUSTAINED', sustained)
         p = b.launch_plist()
         self.assertEqual(p['MachServices'], {b.SERVICE: True}); self.assertFalse(p['KeepAlive'])
         self.assertFalse(p['RunAtLoad']); self.assertNotIn('Program', p)

@@ -37,7 +37,15 @@ private final class ExternalHelperEndpoint: NSObject, ExternalHelperXPC, @unchec
     private var inFlight = false
     init(peer: ExternalControlPeer, service: ExternalControlService) { self.peer = peer; self.service = service }
     func request(_ data: Data, reply: @escaping @Sendable (Data) -> Void) {
-        guard let request = try? ExternalControlRequest.decode(data) else { reply(Data()); return }
+        guard let request = try? ExternalControlRequest.decode(data) else {
+            // A well-formed envelope of another protocol generation gets an explicit
+            // refusal; only undecodable bytes fall back to an empty reply.
+            if let probe = ExternalControlRequest.protocolProbe(data), probe.schema != ExternalControlRequest.currentSchema {
+                reply(ExternalControlReply(requestID: probe.id, instance: service.instance, canApply: false,
+                    result: .init(.refused, code: ExternalControlError.protocolMismatch.rawValue)).encoded())
+            } else { reply(Data()) }
+            return
+        }
         // Revocation is visible even while the actor is inside a bounded native call.
         if request.action == .stop, request.instance == service.instance { peer.cancellation.cancel() }
         lock.lock()
@@ -82,10 +90,16 @@ private final class ExternalHelperListener: NSObject, NSXPCListenerDelegate, @un
         old?.0.invalidate()
         Task { await service.disconnect(peer) }
     }
-    func expireChannels() {
+    func expireChannels() async {
         let now = er_continuous_seconds()
-        lock.lock(); let values = Array(connections.values); lock.unlock()
-        for (_, peer, made) in values where now < made || now - made >= 120 { close(peer) }
+        let values = connectionSnapshot()
+        for (_, peer, made) in values where now < made || now - made >= 120 {
+            let keep = await service.keepsActiveChannel(peer)
+            if now < made || !keep { close(peer) }
+        }
+    }
+    private func connectionSnapshot() -> [(NSXPCConnection, ExternalControlPeer, Double)] {
+        lock.lock(); defer { lock.unlock() }; return Array(connections.values)
     }
     func revokeAll() {
         lock.lock(); let values = Array(connections.values); lock.unlock()
@@ -103,7 +117,12 @@ private final class ExternalHelperListener: NSObject, NSXPCListenerDelegate, @un
             #else
             let enabled = false
             #endif
-            let service = ExternalControlService(allowApply: enabled, initialRecovery: pendingRecovery(), now: { er_continuous_seconds() },
+            #if EXTERNAL_HELPER_SUSTAINED
+            let sustained = true
+            #else
+            let sustained = false
+            #endif
+            let service = ExternalControlService(allowApply: enabled, initialRecovery: pendingRecovery(), sustained: sustained, now: { er_continuous_seconds() },
                 authorize: { consoleAllows($0) }, factory: { try ExternalHelperLease(rules: $0, cancellation: $1) },
                 recovery: { action in
                     let report = try ExternalRecoveryHost.audit(clearMarkerIfAbsent: action == .recoveryClear)
@@ -123,8 +142,8 @@ private final class ExternalHelperListener: NSObject, NSXPCListenerDelegate, @un
             let monitor = Task {
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .milliseconds(500)) } catch { break }
-                    delegate.expireChannels()
                     await service.tick()
+                    await delegate.expireChannels()
                 }
             }
             signal(SIGTERM, SIG_IGN); signal(SIGINT, SIG_IGN)

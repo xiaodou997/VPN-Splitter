@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 #if os(macOS)
 import Foundation
+import OSLog
 import ExternalControl
 import ExternalCore
 import ExternalExecution
@@ -9,6 +10,7 @@ import CExternalRoute
 /// The service actor owns this object and the existing synchronous transaction.
 /// No saved gateway, caller-provided route plan or recovered receipt is accepted.
 final class ExternalHelperLease: ExternalControlledLease {
+    private static let logger = Logger(subsystem: "io.github.xiaodou997.VPNSplitter.ExternalHelper", category: "lease")
     let proposals: [ExternalControlProposal]
     private let plan: ExternalLeasePlan
     private let cancellation: ExternalControlCancellation
@@ -19,8 +21,13 @@ final class ExternalHelperLease: ExternalControlledLease {
     init(rules: String, cancellation: ExternalControlCancellation) throws {
         self.cancellation = cancellation
         let observation = try ExternalSystemSnapshotReader().capture()
+        #if EXTERNAL_HELPER_SUSTAINED
+        let controlled = true
+        #else
+        let controlled = false
+        #endif
         plan = try ExternalLeasePlan.prepare(rules: rules, observation: observation,
-                    uptime: ProcessInfo.processInfo.systemUptime, clock: er_continuous_seconds())
+                    uptime: ProcessInfo.processInfo.systemUptime, clock: er_continuous_seconds(), controlledLifetime: controlled)
         proposals = plan.preview.proposals.map {
             ExternalControlProposal(destination: $0.destination.description, gateway: $0.gateway.description,
                                     interface: $0.interface, disposition: $0.disposition.rawValue)
@@ -53,10 +60,25 @@ final class ExternalHelperLease: ExternalControlledLease {
     }
     private func refresh() {
         guard let transaction else { return }
+        var diagnostic = driver?.diagnosticSummary ?? ""
+        if let change = transaction.snapshotChangeSummary { diagnostic += "; snapshot_change=" + change }
+        if let shapes = transaction.snapshotRouteChangeShapes { diagnostic += "; route_shapes=" + shapes }
+        if let error = transaction.observationErrorCode { diagnostic += "; observation_error=" + error }
+        if let cleanup = transaction.cleanupDiagnostic { diagnostic += "; cleanup=" + cleanup }
         result = .init(ExternalControlState(rawValue: transaction.state.rawValue) ?? .recoveryRequired,
                        code: transaction.failure?.rawValue ?? "none", owned: transaction.ownedCount,
-                       comparison: transaction.postObservation.rawValue, diagnostic: driver?.diagnosticSummary ?? "")
-        if result.state == .closed || result.state == .recoveryRequired { releaseResources() }
+                       comparison: transaction.postObservation.rawValue, diagnostic: diagnostic)
+        if result.state == .closed || result.state == .recoveryRequired {
+            // The GUI may already be disconnected at sleep. Keep only fixed categories
+            // and counts in the OS log; no rules, destinations, interfaces or credentials.
+            let state = result.state.rawValue
+            let code = transaction.failure?.rawValue ?? "none"
+            let owned = transaction.ownedCount
+            let comparison = transaction.postObservation.rawValue
+            let cleanup = transaction.cleanupDiagnostic ?? "none"
+            Self.logger.notice("lease_terminal state=\(state, privacy: .public) code=\(code, privacy: .public) owned=\(owned) comparison=\(comparison, privacy: .public) cleanup=\(cleanup, privacy: .public)")
+            releaseResources()
+        }
     }
     private func releaseResources() { transaction = nil; driver = nil; journal = nil }
 }

@@ -12,8 +12,9 @@ public final class ExternalHelperClient {
     private var pending: (UUID, CheckedContinuation<Data, any Error>)?
     private var deadline: Task<Void, Never>?
     private var generation = UUID()
+    private var sequence: UInt64 = 0
     public private(set) var instance: UUID?
-    public var onDisconnect: (@MainActor () -> Void)?
+    public var onDisconnect: (@MainActor (ExternalControlError) -> Void)?
     public init() {}
     public var isConnected: Bool { connection != nil && instance != nil }
     public func registrationStatus() -> String {
@@ -60,8 +61,18 @@ public final class ExternalHelperClient {
         do {
             // No rules are sent until an authenticated round trip and kernel root UID check.
             let hello = try await send(.init(.hello))
+            if hello.result.state == .refused {
+                if generation == id { close() }
+                // A hello refused as malformed or explicitly generation-tagged means the
+                // peer speaks another protocol revision; it is not an identity failure.
+                switch hello.result.code {
+                case ExternalControlError.invalidRequest.rawValue, ExternalControlError.protocolMismatch.rawValue:
+                    throw ExternalControlError.protocolMismatch
+                default: throw ExternalControlError.authentication
+                }
+            }
             guard generation == id, self.connection === channel, !Task.isCancelled,
-                  channel.effectiveUserIdentifier == 0, hello.result.state != .refused else { throw ExternalControlError.authentication }
+                  channel.effectiveUserIdentifier == 0 else { throw ExternalControlError.authentication }
             instance = hello.instance; return hello
         } catch { if generation == id { close() }; throw error }
     }
@@ -69,6 +80,11 @@ public final class ExternalHelperClient {
         try Task.checkCancellation()
         guard let connection else { throw ExternalControlError.channelMissing }
         guard pending == nil else { throw ExternalControlError.requestInFlight }
+        guard sequence < UInt64.max else { close(); throw ExternalControlError.expired }
+        sequence += 1
+        var sequenced = request
+        sequenced.sequence = sequence
+        let request = sequenced
         let data = try request.encoded()
         _ = try ExternalControlRequest.decode(data)
         let id = generation
@@ -78,7 +94,7 @@ public final class ExternalHelperClient {
                 do { try await Task.sleep(for: .seconds(25)) } catch { return }
                 self?.failed(id, error: .timeout)
             }
-            let remote = connection.remoteObjectProxyWithErrorHandler { [weak self] error in
+            let remote = connection.remoteObjectProxyWithErrorHandler { @Sendable [weak self] error in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     self.failed(id, error: self.xpcError(error))
@@ -108,7 +124,7 @@ public final class ExternalHelperClient {
         }
     }
     public func close() {
-        generation = UUID(); instance = nil; deadline?.cancel(); deadline = nil
+        generation = UUID(); sequence = 0; instance = nil; deadline?.cancel(); deadline = nil
         let waiting = pending; pending = nil
         let channel = connection; connection = nil
         channel?.invalidate(); waiting?.1.resume(throwing: ExternalControlError.disconnected)
@@ -116,7 +132,7 @@ public final class ExternalHelperClient {
     private func failed(_ id: UUID, error: ExternalControlError) {
         guard generation == id else { return }
         let waiting = pending; pending = nil
-        close(); waiting?.1.resume(throwing: error); onDisconnect?()
+        close(); waiting?.1.resume(throwing: error); onDisconnect?(error)
     }
 }
 #endif

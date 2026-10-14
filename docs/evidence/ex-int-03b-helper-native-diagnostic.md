@@ -23,6 +23,30 @@
 
 当前根因未定位。此提交提供诊断能力，不宣称修复首次 unavailable；下一步取得明确错误类别，再针对性修复。旧版本签名/公证成功证据保留。
 
+## 恢复页结果显示修复（backup 线）
+
+用户在诊断版点击只读核查后报告“尚未应用；请用已保存方案重新预检”。源码确认 `.idle` 回包没有更新 message，可能继续显示旧文案；另一个确定问题是断连回调 invalidate 会改变 generation，使等待中的错误被略过。两者都不能凭旧文案判断通信成功或失败。
+
+修复让 idle/noRecovery 显示明确结果，并将断连原因传给界面，在撤销待处理状态后保留安全错误码。新增模型/真实客户端结合替身的成功审计、断连提示回归；调整测试代理失败模式编号，避免与既有恢复故障模式冲突。完整 external-helper-test（Debug/Release 和 14 项合同测试）、Developer ID Mac 构建通过。签名及 root UID 要求不变，路由写入仍禁用。
+
+候选 `.local/external/control.hstd5sk8/VPN-Splitter-ExternalControl.app` 保留当前已安装的 Helper 二进制；Apple 公证提交 `2b9cb5a9-3223-4581-a559-1194f5329bd4` Accepted。尚未安装此界面修复版，先请用户查看现有诊断版分流会话中的实际回包状态。真实协议成功仍待反馈，不能用源码推断填作 PASS。
+
+## 修复版真机回包（backup 线，USER_REPORTED PASS）
+
+用户以管理员权限完成更新后，独立比对安装版 App、Helper、签名资源与 `control.hstd5sk8` 候选相同，strict codesign 与 stapler validate 均通过。启动新版后，用户点击只读核查，报告：
+
+> Helper 只读核查完成：当前没有待恢复会话（noRecovery）。未应用分流。
+
+该 UI 文案仅在收到 idle/noRecovery 回包后显示；调用路径先完成带双方签名要求的 hello、客户端验证服务端 root UID，再发送 recoveryAudit。因此本次真实认证连接与 hello→recoveryAudit 往返为 USER_REPORTED PASS，独立 launchctl 同时确认已注册 Helper 仍运行、启动次数 1、未退出。noRecovery 表示服务当前没有待恢复会话；它不是对全系统路由进行扫描后的零残留证明。未发送 prepare/apply，路由能力仍禁用。
+
+首次旧版 unavailable 的历史原因没有被此次成功反向证明；本轮确定修复的是成功回包不更新文案及断连错误被覆盖。下一步验证查询→quiesce→SMAppService 注销；签名拒绝反例、Helper 路由会话与异常恢复仍待验收。
+
+## 安全注销闭环（backup 线）
+
+用户执行设置页“注销 Helper → 查询并注销”后，检查状态为 `notRegistered`（USER_REPORTED）。独立系统检查：launchctl 返回 113 / Could not find service，且 pgrep 未发现 VPNExternalHelper 进程。因此本次注册→系统批准→认证只读往返→查询/quiesce/注销→服务与进程退出闭环通过。注销未删除规则或恢复记录，没有路由写入。
+
+本轮结束状态为 Helper 未注册；后续原生 Helper 测试需要再次注册/批准。仍未验证错误签名客户端被拒绝、Helper 实际路由会话、60 秒到期、睡眠/切网/VPN 重连等场景，不能标记 External MVP 完成。
+
 ## 2026-10-13 真机定位：协议代际不匹配（非签名/非 XPC 传输）
 
 在 `bb60cf3`（外加 panel 替身修复 `bf3b91d`）上完成本机复验：
@@ -34,4 +58,4 @@
 
 结论：签名、root 校验、XPC 传输与 Helper 服务全部正常。真正原因：**当前安装的 Helper 是 backup 线 sustained 构建，要求每个请求携带 sequence；main 线（`bb60cf3`）客户端无 sequence 字段，hello 被拒为 invalidRequest，客户端把 hello 的 refused 统一映射为 `authentication`**。9 月 30 日 USER_REPORTED PASS 的往返发生在两条线协议一致时。
 
-待办：把 backup 线（保留在 `backup/main-local-31commits-f2d3690`）的 sequence/sustained 协议与面板修复整合进 main，使客户端与已安装 Helper 重新同代，再复测本探针与 GUI 只读入口。探针二进制与源码为 /tmp 一次性产物，未入仓库、未保留。
+待办：backup 线（保留在 `backup/main-local-31commits-f2d3690`）的 sequence/sustained 协议与面板修复正在 `integration/ex-int-03b-protocol-v2` 分支整合进 main，统一为协议 schema=2 + `.v2` 服务名（ADR-EX-INT-06）；从同一 merged commit 重建 App 与 Helper 后复测探针与 GUI 只读入口。探针二进制与源码为 /tmp 一次性产物，未入仓库、未保留。

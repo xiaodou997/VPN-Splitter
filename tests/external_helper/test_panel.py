@@ -59,6 +59,23 @@ HARNESS = r'''
             check(fixture.opened == 1 && fixture.sent == 2)
             check(helper.response?.result.state == .idle)
             check(helper.message.contains("通信只读探针通过") && !helper.cleanupUnconfirmed)
+        } else if scenario == "prepare-refused" {
+            fixture.mode = 12
+            helper.prepare(profiles); try await wait { !helper.busy }
+            check(helper.response?.result.state == .refused)
+            try await Task.sleep(for: .milliseconds(1200))
+            check(helper.message.contains("Helper 拒绝预检") && fixture.sent == 2)
+        } else if scenario == "audit-idle" {
+            helper.invalidate()
+            helper.auditRecovery(); try await wait { !helper.busy }
+            check(helper.response?.result.state == .idle && helper.message.contains("noRecovery"))
+            check(fixture.sent == 2 && !helper.cleanupUnconfirmed)
+            helper.auditRecovery(); try await wait { !helper.busy }
+            check(fixture.sent == 4 && fixture.opened == 2 && helper.message.contains("noRecovery"))
+        } else if scenario == "audit-disconnected" {
+            fixture.mode = 4
+            helper.auditRecovery(); try await wait { !helper.busy }
+            check(helper.message.contains("xpcTransport") && helper.response == nil)
         } else if scenario == "dirty" {
             profiles.hasUnsavedChanges = true
             helper.prepare(profiles); try await wait { !helper.busy }
@@ -68,6 +85,15 @@ HARNESS = r'''
             check(helper.response?.result.state == .prepared && fixture.sent == 2 && !helper.canApply)
             helper.confirmed = true; check(helper.canApply)
             switch scenario {
+            case "sleep-audit":
+                helper.apply(profiles); try await wait { !helper.busy }
+                check(helper.cleanupUnconfirmed)
+                helper.invalidate()
+                check(helper.cleanupUnconfirmed)
+                helper.auditRecovery(); try await wait { !helper.busy }
+                check(helper.response?.result.code == "noRecovery" && !helper.cleanupUnconfirmed)
+                helper.prepare(profiles); try await wait { !helper.busy }
+                check(helper.response?.result.state == .prepared)
             case "apply-stop":
                 helper.apply(profiles); try await wait { !helper.busy }
                 check(helper.response?.result.state == .active && helper.cleanupUnconfirmed)
@@ -85,7 +111,7 @@ HARNESS = r'''
                 helper.invalidate(); helper.apply(profiles)
                 check(fixture.sent == 2 && helper.response == nil && !helper.canApply)
             case "recovery":
-                fixture.mode = 11; helper.apply(profiles); try await wait { !helper.busy }
+                fixture.mode = 5; helper.apply(profiles); try await wait { !helper.busy }
                 check(helper.response?.result.state == .recoveryRequired && helper.cleanupUnconfirmed)
                 helper.prepare(profiles); check(fixture.sent == 3)
             default: fatalError("unknown fixture")
@@ -105,9 +131,11 @@ class HelperPanelTests(unittest.TestCase):
         self.assertIn('struct ExternalHelperSettingsPanel: View', panel)
         model = panel.split('struct ExternalHelperSessionPanel: View')[0]
         client = (SOURCE / 'ExternalHelperClient.swift').read_text()
-        for token in ['#if os(macOS)', '#endif', 'import SwiftUI', 'import AppKit', 'import ExternalCore', 'import ExternalControl', 'import ServiceManagement', 'import Darwin']:
+        client = client.removesuffix('\n').removesuffix('#endif')
+        for token in ['#if os(macOS)', 'import SwiftUI', 'import AppKit', 'import ExternalCore', 'import ExternalControl', 'import ServiceManagement', 'import Darwin']:
             model = model.replace(token, ''); client = client.replace(token, '')
-        fake = FAKES.replace('if request.action == .prepare', 'if request.action == .apply { state.active = true; result = .init(mode == 11 ? .recoveryRequired : .active) }\n        if request.action == .prepare', 1)
+        fake = FAKES.replace('if request.action == .stop', 'if request.action == .recoveryAudit { result = .init(.idle, code: "noRecovery") }\n        if request.action == .stop').replace('if request.action == .prepare', 'if request.action == .apply { state.active = true; result = .init(mode == 5 ? .recoveryRequired : .active) }\n        if request.action == .prepare', 1)
+        fake = fake.replace('var response = ExternalControlReply', 'if request.action == .prepare && mode == 12 { result = .init(.refused, code: "topologyRejected") }\n        var response = ExternalControlReply')
         source = (SOURCE / 'ExternalControlWire.swift').read_text() + (SOURCE / 'ExternalControlIdentity.swift').read_text().split('#if os(macOS)')[0]
         with tempfile.TemporaryDirectory(prefix='external-helper-panel-') as directory:
             root = Path(directory); file = root / 'Harness.swift'; binary = root / 'test-panel'
@@ -115,7 +143,7 @@ class HelperPanelTests(unittest.TestCase):
             compiled = subprocess.run(['swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-warnings-as-errors',
                 optimization, '-parse-as-library', str(file), '-o', str(binary)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compiled.returncode, 0, compiled.stdout + compiled.stderr)
-            for scenario in ['probe', 'dirty', 'apply-stop', 'disk-changed', 'cancel-pending', 'edit-invalidates', 'recovery']:
+            for scenario in ['probe', 'prepare-refused', 'sleep-audit', 'audit-idle', 'audit-disconnected', 'dirty', 'apply-stop', 'disk-changed', 'cancel-pending', 'edit-invalidates', 'recovery']:
                 with self.subTest(scenario=scenario):
                     run = subprocess.run([str(binary), scenario], capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

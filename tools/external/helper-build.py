@@ -23,14 +23,14 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 APP_ID = 'io.github.xiaodou997.VPNSplitter.ExternalControl'
 HELPER_ID = 'io.github.xiaodou997.VPNSplitter.ExternalHelper'
-SERVICE = HELPER_ID + '.v1'
+SERVICE = HELPER_ID + '.v2'
 
 def launch_plist() -> dict:
     return {'Label': SERVICE, 'BundleProgram': 'Contents/Library/LaunchServices/VPNExternalHelper',
             'MachServices': {SERVICE: True}, 'RunAtLoad': False, 'KeepAlive': False,
             'ProcessType': 'Interactive', 'ExitTimeOut': 180}
 
-def swift_arguments(root: Path, run: Path, sdk: str, helper: bool, trial: bool) -> list[str]:
+def swift_arguments(root: Path, run: Path, sdk: str, helper: bool, trial: bool, sustained: bool = False) -> list[str]:
     arguments = ['/usr/bin/xcrun', 'swift', 'build', '--package-path',
                  str(root / 'Packages' / ('ExternalExecution' if helper else 'ExternalCore')),
                  '--scratch-path', str(run / ('helper-build' if helper else 'app-build')),
@@ -39,6 +39,8 @@ def swift_arguments(root: Path, run: Path, sdk: str, helper: bool, trial: bool) 
                  '-Xswiftc', '-warnings-as-errors', '-Xcc', '-Wall', '-Xcc', '-Wextra', '-Xcc', '-Werror']
     if helper and trial:
         arguments += ['-Xswiftc', '-DEXTERNAL_HELPER_ROUTE_TRIAL']
+    if sustained:
+        arguments += ['-Xswiftc', '-DEXTERNAL_HELPER_SUSTAINED']
     return arguments
 
 def compile_once(arguments: list[str], log) -> None:
@@ -59,10 +61,12 @@ def requirement(identifier: str, team: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--identity'); parser.add_argument('--team-id'); parser.add_argument('--route-trial', action='store_true')
+    parser.add_argument('--identity'); parser.add_argument('--team-id'); parser.add_argument('--route-trial', action='store_true'); parser.add_argument('--sustained', action='store_true')
     args = parser.parse_args()
     if bool(args.identity) != bool(args.team_id) or (args.team_id and not re.fullmatch('[A-Z0-9]{10}', args.team_id)):
         parser.error('--identity and a 10-character --team-id must be supplied together')
+    if args.sustained and not args.route_trial:
+        parser.error('--sustained requires --route-trial and real signing')
     if args.identity == '-' or (args.route_trial and not args.identity):
         parser.error('a real signing identity is required for --route-trial; ad-hoc is the no-option default')
     if platform.system() != 'Darwin' or platform.machine() != 'arm64':
@@ -85,7 +89,7 @@ def main() -> int:
         destinations = [app / 'Contents/MacOS/VPNExternalPreview', app / 'Contents/Library/LaunchServices/VPNExternalHelper']
         with (run / 'build.log').open('wb') as log:
             for helper, target in zip([False, True], destinations):
-                command = swift_arguments(ROOT, run, sdk, helper, args.route_trial)
+                command = swift_arguments(ROOT, run, sdk, helper, args.route_trial, args.sustained)
                 compile_once(command, log)
                 folder = Path(output(command + ['--show-bin-path']).splitlines()[-1])
                 source = folder / target.name
@@ -117,6 +121,7 @@ def main() -> int:
         (run / 'artifacts.sha256').write_text(hashes + '\n')
         print('schema=external-helper-build-v1\ncompile=PASS\nexecution=NOT_RUN\nnetwork_settings=NOT_APPLIED\nhelper_installation=NOT_REQUESTED')
         print('signing=' + ('LOCAL_IDENTITY_VERIFIED' if args.identity else 'ADHOC_NOT_AUTHORIZED'))
+        print('session_mode=' + ('SUSTAINED_PREVIEW' if args.sustained else 'FINITE_TRIAL'))
         print('route_trial=' + ('COMPILED_EXPLICIT_OPT_IN' if args.route_trial else 'DISABLED'))
         print('App: ' + str(app)); print('Local results: ' + str(run))
         return 0

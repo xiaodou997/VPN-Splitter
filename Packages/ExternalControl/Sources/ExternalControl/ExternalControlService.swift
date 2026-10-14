@@ -16,6 +16,7 @@ public protocol ExternalControlledLease: AnyObject {
 public actor ExternalControlService {
     public nonisolated let instance = UUID()
     private let allowApply: Bool
+    private let sustained: Bool
     private let now: @Sendable () -> TimeInterval
     private let authorize: @Sendable (UInt32) -> Bool
     private let factory: @Sendable (String, ExternalControlCancellation) throws -> any ExternalControlledLease
@@ -23,6 +24,7 @@ public actor ExternalControlService {
     private struct Client {
         let peer: ExternalControlPeer
         var requests: Set<UUID> = []
+        var sequence: UInt64?
         var heartbeat: TimeInterval
     }
     private struct Session {
@@ -38,15 +40,17 @@ public actor ExternalControlService {
     private var clients: [UUID: Client] = [:]
     private var session: Session?
     private var terminal: [UUID: ExternalControlResult] = [:]
+    private var terminalAt: [UUID: TimeInterval] = [:]
     private var blocked = false
     private var shuttingDown = false
     private var lastClock: TimeInterval = 0
-    public init(allowApply: Bool, initialRecovery: Bool = false, now: @escaping @Sendable () -> TimeInterval,
+    public init(allowApply: Bool, initialRecovery: Bool = false, sustained: Bool = false, now: @escaping @Sendable () -> TimeInterval,
                 authorize: @escaping @Sendable (UInt32) -> Bool,
                 factory: @escaping @Sendable (String, ExternalControlCancellation) throws -> any ExternalControlledLease,
                 recovery: @escaping @Sendable (ExternalControlAction) throws -> ExternalControlResult = { _ in
                     .init(.refused, code: ExternalControlError.unavailable.rawValue)
                 }) {
+        self.sustained = sustained
         self.allowApply = allowApply; self.blocked = initialRecovery; self.now = now
         self.authorize = authorize; self.factory = factory; self.recovery = recovery
     }
@@ -64,15 +68,23 @@ public actor ExternalControlService {
         if request.action == .hello {
             guard !peer.cancellation.isCancelled, peer.uid != 0, authorize(peer.uid), clients[peer.id] == nil,
                   clients.count < 8 else { return refused(.authentication) }
-            clients[peer.id] = Client(peer: peer, requests: [request.id], heartbeat: time)
+            clients[peer.id] = Client(peer: peer, requests: [request.id], sequence: request.sequence, heartbeat: time)
             return reply(.init(blocked ? .recoveryRequired : (session == nil ? .idle : .refused),
                                code: blocked ? "recoveryRequired" : (session == nil ? "none" : "busy")))
         }
         guard var client = clients[peer.id], client.peer.uid == peer.uid,
               client.peer.cancellation === peer.cancellation,
               request.instance == instance else { return refused(.authentication) }
-        guard !client.requests.contains(request.id), client.requests.count < 512 else { return refused(.invalidRequest) }
-        client.requests.insert(request.id); client.heartbeat = time; clients[peer.id] = client
+        if let previous = client.sequence {
+            guard previous < UInt64.max, request.sequence == previous + 1 else { return refused(.invalidRequest) }
+            client.sequence = request.sequence
+        } else if request.sequence != nil { return refused(.invalidRequest) }
+        // Sequenced status requests use constant memory. Mutations keep UUID replay checks.
+        if request.action != .status || client.sequence == nil {
+            guard !client.requests.contains(request.id), client.requests.count < 512 else { return refused(.invalidRequest) }
+            client.requests.insert(request.id)
+        }
+        client.heartbeat = time; clients[peer.id] = client
         // A revoked peer may retrieve its terminal result or explicitly finish; it
         // cannot prepare/apply again. Only the owner can stop a reservation/session.
         if request.action == .stop {
@@ -88,6 +100,9 @@ public actor ExternalControlService {
                                code: blocked ? "recoveryRequired" : (session == nil ? "none" : "busy")))
         }
         guard !peer.cancellation.isCancelled, authorize(peer.uid) else { return refused(.authentication) }
+        if request.action == .recoveryAudit || request.action == .recoveryClear {
+            guard session == nil else { return reply(.init(.refused, code: "busy")) }
+        }
         if request.action == .recoveryAudit {
             guard blocked, session == nil else {
                 return reply(.init(blocked ? .recoveryRequired : .idle,
@@ -157,7 +172,7 @@ public actor ExternalControlService {
             let peer = clients[value.owner]
             let denied = peer == nil || value.cancellation.isCancelled || !authorize(peer!.peer.uid)
             let heartbeatExpired = peer.map { time - $0.heartbeat >= 10 } ?? true
-            let expired = value.started.map { time - $0 >= 60 } ?? (time - value.made >= 15)
+            let expired = value.started.map { !sustained && time - $0 >= 60 } ?? (time - value.made >= 15)
             if clockFailed || denied || heartbeatExpired || expired { finish() }
             else if value.started != nil {
                 value.lease.poll()
@@ -166,18 +181,30 @@ public actor ExternalControlService {
         }
         // Drop unaffiliated idle clients without retaining an unbounded result history.
         for (id, client) in clients where session?.owner != id && (time - client.heartbeat >= 30) {
-            clients.removeValue(forKey: id); terminal.removeValue(forKey: id)
+            clients.removeValue(forKey: id); terminal.removeValue(forKey: id); terminalAt.removeValue(forKey: id)
         }
+    }
+    public func keepsActiveChannel(_ peer: ExternalControlPeer) -> Bool {
+        guard sustained, let client = clients[peer.id],
+              client.peer.cancellation === peer.cancellation, authorize(peer.uid) else { return false }
+        let time = now()
+        guard time.isFinite, time >= client.heartbeat, time - client.heartbeat < 10 else { return false }
+        // Stop revokes the peer before producing its terminal reply. Let that reply
+        // cross XPC before the aged-channel sweeper closes it; this owns no routes.
+        if let ended = terminalAt[peer.id] { return time >= ended && time - ended < 10 }
+        guard let value = session, value.owner == peer.id, value.started != nil,
+              !peer.cancellation.isCancelled else { return false }
+        return true
     }
     public func disconnect(_ peer: ExternalControlPeer) {
         peer.cancellation.cancel()
         if session?.owner == peer.id { finish() }
-        clients.removeValue(forKey: peer.id); terminal.removeValue(forKey: peer.id)
+        clients.removeValue(forKey: peer.id); terminal.removeValue(forKey: peer.id); terminalAt.removeValue(forKey: peer.id)
     }
     public func shutdown() {
         shuttingDown = true
         for client in clients.values { client.peer.cancellation.cancel() }
-        finish(); clients.removeAll(); terminal.removeAll()
+        finish(); clients.removeAll(); terminal.removeAll(); terminalAt.removeAll()
     }
     private func finish() {
         guard let value = session else { return }
@@ -189,6 +216,7 @@ public actor ExternalControlService {
             if result.state != .closed || result.owned != 0 { result.state = .recoveryRequired; blocked = true }
             terminal[value.owner] = result
         } else { terminal[value.owner] = .init(.closed, code: "notApplied") }
+        terminalAt[value.owner] = now()
         session = nil
     }
 }

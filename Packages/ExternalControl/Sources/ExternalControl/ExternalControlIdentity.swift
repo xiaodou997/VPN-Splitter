@@ -5,7 +5,9 @@ public enum ExternalControlIdentity {
     // Separate from old ad-hoc ExternalPreview and all Managed/WireGuard identities.
     public static let app = "io.github.xiaodou997.VPNSplitter.ExternalControl"
     public static let helper = "io.github.xiaodou997.VPNSplitter.ExternalHelper"
-    public static let service = helper + ".v1"
+    // v2: sequence-numbered protocol. A same-name generation drift is answered with
+    // protocolMismatch; the service name itself moves so v1 daemons never mix.
+    public static let service = helper + ".v2"
     public static let plist = service + ".plist"
     public static func requirement(team: String, helper: Bool) throws -> String {
         guard team.utf8.count == 10, team.utf8.allSatisfy({ (65...90).contains($0) || (48...57).contains($0) }) else {

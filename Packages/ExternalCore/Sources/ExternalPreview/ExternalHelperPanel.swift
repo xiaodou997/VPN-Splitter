@@ -19,7 +19,10 @@ final class ExternalHelperModel: ObservableObject {
     private var selection: (UUID, UUID, String)?
     private(set) var cleanupUnconfirmed = false
     init() {
-        client.onDisconnect = { [weak self] in self?.invalidate() }
+        client.onDisconnect = { [weak self] error in
+            self?.invalidate()
+            self?.report(error)
+        }
     }
     var canApply: Bool { !busy && confirmed && response?.canApply == true && response?.result.state == .prepared }
     var canClearRecovery: Bool {
@@ -37,7 +40,7 @@ final class ExternalHelperModel: ObservableObject {
             let status = try await client.send(.init(.status, instance: client.instance))
             guard status.instance == hello.instance else { throw ExternalControlError.invalidResponse }
             response = status
-            message = "Helper 通信只读探针通过：签名校验、root 对端检查、hello 与 status 往返均成功；服务状态 (status.result.state.rawValue) / (status.result.code)。没有应用路由。"
+            message = "Helper 通信只读探针通过：签名校验、root 对端检查、hello 与 status 往返均成功；服务状态 \(status.result.state.rawValue) / \(status.result.code)。没有应用路由。"
             client.close()
         }
     }
@@ -106,7 +109,8 @@ final class ExternalHelperModel: ObservableObject {
             guard !Task.isCancelled else { throw ExternalControlError.disconnected }
             selection = selected; accept(reply)
             message = reply.result.state == .prepared ? "Helper 已重新检查当前网络。确认窗口 15 秒，未应用；请核对下列提案。" : "Helper 拒绝预检：\(reply.result.code)"
-            watch()
+            if reply.result.state == .prepared { watch() }
+            else { selection = nil; client.close() }
         }
     }
     func apply(_ profiles: ExternalProfilesModel) {
@@ -152,7 +156,11 @@ final class ExternalHelperModel: ObservableObject {
         switch value.result.state {
         case .active:
             cleanupUnconfirmed = true
+            #if EXTERNAL_HELPER_SUSTAINED
+            message = "IP 分流已生效（持续试用）。请保持本应用运行；停止、失联或网络变化时撤销。"
+            #else
             message = "路由添加响应及读回通过，最多 60 秒；实际目标流量尚未验证。"
+            #endif
         case .closed:
             cleanupUnconfirmed = value.result.owned != 0
             if value.result.code == "recoveryCleared" {
@@ -172,6 +180,16 @@ final class ExternalHelperModel: ObservableObject {
                 message = "需要恢复：\(value.result.code)。不要重复应用或删除标记。"
             }
             monitor?.cancel(); monitor = nil
+        case .idle:
+            if value.result.code == "noRecovery", value.result.owned == 0 {
+                cleanupUnconfirmed = false
+            }
+            // Idle peers expire after 30s on the Helper. End this completed read-only
+            // exchange so the next user action performs a fresh authenticated hello.
+            client.close()
+            message = value.result.code == "noRecovery"
+                ? "Helper 只读核查完成：当前没有待恢复会话（noRecovery）。未应用分流。"
+                : "Helper 已连接：空闲（\(value.result.code)）。未应用分流。"
         case .refused:
             message = "Helper 拒绝：\(value.result.code)。"
         default: break
@@ -234,8 +252,13 @@ struct ExternalHelperSessionPanel: View {
                 Toggle("我已核对提案，允许本次有限 IPv4 直连例外", isOn: $helper.confirmed)
                     .disabled(helper.busy || helper.response?.result.state != .prepared || helper.response?.canApply != true)
                 HStack {
+                    #if EXTERNAL_HELPER_SUSTAINED
+                    Button("开始 IP 分流（试用）") { helper.apply(profiles) }.disabled(!helper.canApply)
+                        .buttonStyle(.borderedProminent)
+                    #else
                     Button("开始 60 秒分流") { helper.apply(profiles) }.disabled(!helper.canApply)
                         .buttonStyle(.borderedProminent)
+                    #endif
                     Button("停止 / 撤销") { helper.stop() }
                 }
                 Text("这里只控制本应用的有限 DIRECT 例外；不会停止原 VPN、修改默认路由或 DNS。")

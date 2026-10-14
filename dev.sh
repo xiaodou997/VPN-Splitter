@@ -7,7 +7,7 @@ MODE=${1:-doctor}
 if [[ $# -gt 0 ]]; then shift; fi
 usage() {
     cat <<'TEXT'
-用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test|external-helper-build [--identity NAME --team-id TEAM] [--route-trial]|external-helper-test|external-flow-signing-preflight [--team-id TEAM]|external-flow-build [--sign --identity NAME --team-id TEAM --app-profile NAME --extension-profile NAME]|external-flow-test]
+用法：/bin/bash dev.sh [doctor [app|engine]|run|test|engine [--fetch]|engine-flow [--fetch]|engine-test|provider-test|packet-flow-test|provider-build [--fetch] [--sign]|provider-runtime-test|external-run|external-build|external-test|external-executor-build|external-execution-test|external-helper-build [--identity NAME --team-id TEAM] [--route-trial [--sustained]]|external-helper-test|external-flow-signing-preflight [--team-id TEAM]|external-flow-build [--sign --identity NAME --team-id TEAM --app-profile NAME --extension-profile NAME]|external-flow-test]
   doctor          只读检查，一次列出全部环境问题；默认检查界面开发环境
   doctor engine   检查原生引擎构建环境，包括 Go；不下载、不构建
   run             构建并打开 LocalDev；不需要 Go，不连接 VPN

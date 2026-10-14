@@ -42,6 +42,7 @@ private final class Driver: ExternalRouteOperating {
     var rejectAt: Int?; var unknownAt: Int?; var unknownCreates = false
     var removeRefused = false; var removeRetainsRow = false; var omitAddRow = false
     var afterAdd: (() -> Void)?
+    var afterRemove: (() -> Void)?
     init(_ initial: ExternalObservation? = nil) throws { rows = try (initial ?? snapshot()).routes }
     func observe() throws -> ExternalObservation {
         observeCount += 1
@@ -68,6 +69,7 @@ private final class Driver: ExternalRouteOperating {
         guard !removeRefused, live.contains(token), let route = receipts[token] else { return .refused }
         live.remove(token)
         if !removeRetainsRow { rows.remove(row(route)) }
+        afterRemove?()
         return .acknowledged
     }
 }
@@ -92,6 +94,19 @@ private func session(_ p: ExternalLeasePlan, _ driver: Driver, _ journal: Journa
 }
 
 final class ExternalLeaseTests: XCTestCase {
+    func testControlledLifetimeOutlivesTrialButStillStopsOnCancellation() throws {
+        let p = try ExternalLeasePlan.prepare(rules: "198.51.100.4", observation: snapshot(),
+            uptime: 101, clock: 10, controlledLifetime: true)
+        let d = try Driver(), j = Journal(), clock = Clock()
+        let t = session(p, d, j, clock)
+        t.start(consent: true)
+        clock.now += 3600; t.poll()
+        XCTAssertEqual(t.state, .active)
+        clock.cancelled = true; t.poll()
+        XCTAssertEqual(t.state, .closed)
+        XCTAssertEqual(t.ownedCount, 0)
+        XCTAssertEqual(d.removes, [1])
+    }
     func testRequiresSeparateConsentAndDoesNotUpgradePreview() throws {
         let p = try plan(), d = try Driver(), j = Journal(); let t = session(p, d, j)
         XCTAssertFalse(p.preview.canApply); t.start(consent: false)
@@ -139,6 +154,53 @@ final class ExternalLeaseTests: XCTestCase {
         XCTAssertEqual(t.snapshotChangeSummary,
                        "interfaces_changed=false physical_paths_changed=false dns_changed=false routes_added=1 routes_removed=0")
         XCTAssertFalse(t.snapshotChangeSummary!.contains("203.0.113"))
+        XCTAssertEqual(t.snapshotRouteChangeShapes, "ifref_only=false;added=[p24/f=UGSc/if=utun/gw=ipv4/expired=false];removed=[]")
+        XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("10.8.0.1"))
+        XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("utun42"))
+    }
+    func testInterfaceReferenceEpochDoesNotHideOtherFields() throws {
+        let old = ExternalRoute(destination: try IPv4CIDR("192.0.2.1/32"),
+                                gateway: "0:1:2:3:4:5", interface: "en7", flags: "UHLWI", isExpired: true)
+        let baseline = try snapshot(rows: snapshot().routes.union([old]))
+        let changes = [
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWIi", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: "0:1:2:3:4:6", interface: old.interface, flags: "UHLWIi", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: "en8", flags: "UHLWIi", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWIi", isExpired: false)
+        ]
+        for (index, changed) in changes.enumerated() {
+            let driver = try Driver(baseline); driver.rows.remove(old); driver.rows.insert(changed)
+            let transaction = session(try plan(baseline: baseline), driver, Journal())
+            transaction.start(consent: true)
+            if index == 0 {
+                XCTAssertEqual(transaction.state, .active)
+                XCTAssertNil(transaction.failure)
+                transaction.stop()
+                XCTAssertEqual(transaction.state, .closed)
+                XCTAssertEqual(transaction.postObservation, .unchanged)
+            } else {
+                XCTAssertEqual(transaction.failure, .networkChanged)
+                XCTAssertTrue(driver.adds.isEmpty)
+                XCTAssertTrue(transaction.snapshotRouteChangeShapes!.hasPrefix("ifref_only=false;"))
+                XCTAssertFalse(transaction.snapshotRouteChangeShapes!.contains(old.gateway))
+            }
+        }
+    }
+    func testInterfaceReferenceExceptionNeverChangesOwnedRouteReadback() throws {
+        let driver = try Driver(), journal = Journal()
+        let prepared = try plan()
+        let transaction = session(prepared, driver, journal)
+        transaction.start(consent: true)
+        XCTAssertEqual(transaction.state, .active)
+        let original = row(prepared.additions[0])
+        driver.rows.remove(original)
+        driver.rows.insert(ExternalRoute(destination: original.destination, gateway: original.gateway,
+                                         interface: original.interface, flags: original.flags + "i"))
+        transaction.poll()
+        XCTAssertEqual(transaction.state, .recoveryRequired)
+        XCTAssertTrue(driver.removes.isEmpty)
+        XCTAssertEqual(transaction.ownedCount, 1)
+        XCTAssertEqual(journal.finished, 0)
     }
     func testExistingDirectRoutesAreNeverClaimedOrDeleted() throws {
         let single = try plan().additions[0]
@@ -245,6 +307,30 @@ final class ExternalLeaseTests: XCTestCase {
         let d = try Driver(), j = Journal(); let t = session(try plan(), d, j)
         t.start(consent: true); d.observationFailure = true; t.stop()
         XCTAssertEqual(t.state, .recoveryRequired); XCTAssertEqual(t.postObservation, .notObserved); XCTAssertEqual(j.finished, 0)
+    }
+    func testDeleteAckThenObservationFailureKeepsMarkerWithoutRetry() throws {
+        let d = try Driver(), j = Journal(); let t = session(try plan(), d, j)
+        t.start(consent: true)
+        d.afterRemove = { d.nextObservationError = .changedDuringRead }
+        t.stop()
+        XCTAssertEqual(t.state, .recoveryRequired)
+        XCTAssertEqual(t.ownedCount, 1)
+        XCTAssertEqual(j.finished, 0)
+        XCTAssertEqual(t.cleanupDiagnostic, "stage=afterDeleteObservation reason=changedDuringRead")
+        XCTAssertEqual(d.rows, try snapshot().routes) // Route gone, but readback not proven.
+        XCTAssertEqual(t.postObservation, .unchanged) // Later comparison does not confer ownership.
+        t.stop()
+        XCTAssertEqual(d.removes, [1]) // No retry or retroactive promotion to success.
+        XCTAssertEqual(j.finished, 0)
+    }
+    func testObservationFailureBeforeDeleteDoesNotWrite() throws {
+        let d = try Driver(), j = Journal(); let t = session(try plan(), d, j)
+        t.start(consent: true); d.nextObservationError = .changedDuringRead
+        t.stop()
+        XCTAssertEqual(t.state, .recoveryRequired)
+        XCTAssertTrue(d.removes.isEmpty)
+        XCTAssertEqual(j.finished, 0)
+        XCTAssertEqual(t.cleanupDiagnostic, "stage=beforeDeleteObservation reason=changedDuringRead")
     }
     func testStopDeletesInReverseAcknowledgedOrder() throws {
         let d = try Driver(), j = Journal(); let t = session(try plan("198.51.100.4\n203.0.113.4"), d, j)

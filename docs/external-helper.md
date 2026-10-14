@@ -61,3 +61,17 @@ Helper 启动发现旧 active marker 时继续锁定新会话。控制 App 可�
 ## 待验收
 
 新的 Mac 完整构建、真实双向签名/XPC、管理员批准、客户端退出/失联、Helper 启停、实际路由添加与自动撤销均未由离线回归证明。03A 的用户验证通过只覆盖此前反馈范围。OpenVPN 导入尚未实现；不把本批当成完整 v0.1。
+
+## 持续 IP 分流试用构建
+
+用户要求进入实际试用；ADR-EX-INT-05 增加显式 `--route-trial --sustained` 签名选项。仅 `--route-trial` 仍为原 60 秒实验；默认构建仍不可写路由。持续候选同时编译 App 和 Helper，不通过用户 IPC 传入期限。
+
+```sh
+/bin/bash dev.sh external-helper-build --identity '<本机 Developer ID 身份>' --team-id '<本机 Team ID>' --route-trial --sustained
+```
+
+持续模式保持 App 运行和有效心跳，不会每 60 秒结束；停止、App 失联、睡眠、观察失败或网络变化仍请求撤销，不自动重连。关窗口与退出 App 不同，退出前应停止。IP 规则仍限单次最多 8 项、/24–/32、总共 2048 地址；APP/域名仅保存，不能执行。原默认路由和 DNS 不由本工具改写。若提示恢复，使用恢复页核查，不反复开始。完整发行稳定性未完成，先按受控试用收集反馈。
+
+## 协议版本与服务名
+
+ADR-EX-INT-06 起控制协议为 schema=2：每个请求必须携带按客户端连续递增的 `sequence`（无序号或跳号拒绝为 invalidRequest），且 schema 不等于当前版本的请求由端点在解码失败路径直接应答 `refused/protocolMismatch`，客户端据此报 `protocolMismatch` 而不再误报 `authentication`。特权服务名升级为 `io.github.xiaodou997.VPNSplitter.ExternalHelper.v2`（plist 同步改名），避免与旧 v1 同名服务产生协议漂移；v1 与 v2 客户端/Helper 互不兼容，升级时必须从同一提交同时重建并替换 App 与 Helper，旧 v1 注册需单独注销。

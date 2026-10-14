@@ -41,6 +41,8 @@ final class MockProxy: ExternalHelperXPC {
         if mode == 10 { fail(NSError(domain: "synthetic", code: NSXPCConnectionReplyInvalid)); return }
         let request = try! ExternalControlRequest.decode(data)
         var result = ExternalControlResult(state.active ? .active : .idle)
+        if mode == 13 && request.action == .hello { result = .init(.refused, code: "invalidRequest") }
+        if mode == 14 && request.action == .hello { result = .init(.refused, code: "authentication") }
         if request.action == .prepare { result = .init(.prepared) }
         if request.action == .stop { result = .init(.closed) }
         if request.action == .quiesce { result = .init(.closed, code: "quiesced") }
@@ -64,7 +66,7 @@ final class NSXPCConnection: @unchecked Sendable {
     func setCodeSigningRequirement(_ value: String) { MockState.shared.requirement = value }
     func resume() {}
     func invalidate() { invalidationHandler?() }
-    func remoteObjectProxyWithErrorHandler(_ handler: @escaping @Sendable (any Error) -> Void) -> Any { if MockState.shared.mode == 5 { return NSObject() }; return MockProxy(handler) }
+    func remoteObjectProxyWithErrorHandler(_ handler: @escaping @Sendable (any Error) -> Void) -> Any { if MockState.shared.mode == 50 { return NSObject() }; return MockProxy(handler) }
 }
 final class SMAppService {
     enum Status { case enabled, requiresApproval, notRegistered, notFound }
@@ -96,7 +98,7 @@ HARNESS = r'''
             do { _ = try await client.connect(); fatalError("accepted disabled service") }
             catch { check((error as? ExternalControlError) == .serviceNotEnabled && state.opened == 0) }
         case "proxy-unavailable":
-            state.mode = 5
+            state.mode = 50
             do { _ = try await client.connect(); fatalError("accepted wrong proxy") }
             catch { check((error as? ExternalControlError) == .proxyUnavailable && !client.isConnected && state.sent == 0) }
         case "roundtrip":
@@ -106,6 +108,14 @@ HARNESS = r'''
             let prepared = try await client.send(.init(.prepare, instance: client.instance, profile: UUID(), revision: UUID(), rules: "198.51.100.7"))
             check(prepared.result.state == .prepared && prepared.ticket != nil)
             client.close(); check(!client.isConnected)
+        case "protocol-mismatch":
+            state.mode = 13
+            do { _ = try await client.connect(); fatalError("accepted foreign-generation hello refusal") }
+            catch { check((error as? ExternalControlError) == .protocolMismatch && !client.isConnected) }
+        case "hello-authentication":
+            state.mode = 14
+            do { _ = try await client.connect(); fatalError("accepted refused hello") }
+            catch { check((error as? ExternalControlError) == .authentication && !client.isConnected) }
         case "nonroot":
             state.root = 501
             do { _ = try await client.connect(); fatalError("accepted nonroot") }
@@ -179,7 +189,7 @@ class NativeClientTests(unittest.TestCase):
             compile = subprocess.run(['swiftc', '-swift-version', '6', '-strict-concurrency=complete', '-warnings-as-errors',
                 optimization, '-parse-as-library', str(source), '-o', str(exe)], capture_output=True, text=True, timeout=60)
             self.assertEqual(compile.returncode, 0, compile.stdout + compile.stderr)
-            for scenario in ['missing-channel', 'service-disabled', 'proxy-unavailable', 'roundtrip', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'xpc-signing-error', 'xpc-interrupted-error', 'xpc-invalid-error', 'xpc-reply-error', 'unregister', 'active-unregister']:
+            for scenario in ['missing-channel', 'service-disabled', 'proxy-unavailable', 'roundtrip', 'protocol-mismatch', 'hello-authentication', 'nonroot', 'badreply', 'duplicate', 'pending-close', 'errorhandler', 'xpc-signing-error', 'xpc-interrupted-error', 'xpc-invalid-error', 'xpc-reply-error', 'unregister', 'active-unregister']:
                 with self.subTest(scenario=scenario):
                     run = subprocess.run([str(exe), scenario], capture_output=True, text=True, timeout=10)
                     self.assertEqual(run.returncode, 0, run.stdout + run.stderr)

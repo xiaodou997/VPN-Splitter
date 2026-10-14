@@ -33,8 +33,9 @@ public struct ExternalLeasePlan: Sendable, CustomStringConvertible, CustomDebugS
     public let baseline: ExternalObservation
     public let reviewedAt: TimeInterval
     public let lifetime: TimeInterval
+    public let controlledLifetime: Bool
     public static func prepare(rules: String, observation: ExternalObservation, uptime: TimeInterval,
-                               clock: TimeInterval, lifetime: TimeInterval = 60) throws -> Self {
+                               clock: TimeInterval, lifetime: TimeInterval = 60, controlledLifetime: Bool = false) throws -> Self {
         guard clock.isFinite, clock >= 0, lifetime > 0, lifetime <= 60 else { throw ExternalLeaseFailure.limit }
         let preview = try ExternalPlanner.preview(rules, observation: observation, now: uptime)
         // Explicit trial limits, not silent clipping or prefix widening. The preview's
@@ -45,7 +46,7 @@ public struct ExternalLeasePlan: Sendable, CustomStringConvertible, CustomDebugS
             throw ExternalLeaseFailure.limit
         }
         return Self(preview: preview, additions: preview.proposals.filter { $0.disposition == .wouldAdd }.map(ExternalLeaseRoute.init),
-                    baseline: observation, reviewedAt: clock, lifetime: lifetime)
+                    baseline: observation, reviewedAt: clock, lifetime: lifetime, controlledLifetime: controlledLifetime)
     }
     public var description: String { "ExternalLeasePlan(<redacted>; not-authorized)" }
     public var debugDescription: String { description }
@@ -81,8 +82,12 @@ public final class ExternalLeaseTransaction {
     public private(set) var postObservation: ExternalPostObservation = .notObserved
     /// Category/count-only reason for an epoch rejection; never exposes route keys or DNS values.
     public private(set) var snapshotChangeSummary: String?
+    /// At most two added/removed route shapes; no addresses, gateway values or interface IDs.
+    public private(set) var snapshotRouteChangeShapes: String?
     /// Safe error category from a failed system observation; never includes raw system output.
     public private(set) var observationErrorCode: String?
+    /// First cleanup failure: fixed stage/category only, never error descriptions or route values.
+    public private(set) var cleanupDiagnostic: String?
     public var ownedCount: Int { owned.count }
     private struct Owned { let index: Int; let token: UInt64; let route: ExternalLeaseRoute; var row: ExternalRoute? }
     private let plan: ExternalLeasePlan
@@ -116,7 +121,7 @@ public final class ExternalLeaseTransaction {
             do { try journal.begin(session: UUID(), routes: plan.additions); journalStarted = true }
             catch { journalHealthy = false; throw ExternalLeaseFailure.journalFailed }
             try checkLive()
-            deadline = lastClock + plan.lifetime
+            deadline = plan.controlledLifetime ? nil : lastClock + plan.lifetime
             for (index, route) in plan.additions.enumerated() {
                 try checkLive()
                 guard driver.drainEvents() else { throw ExternalLeaseFailure.observationFailed }
@@ -172,26 +177,44 @@ public final class ExternalLeaseTransaction {
         state = .stopping
         var remaining: [Owned] = []
         for item in owned.reversed() {
+            var stage = "beforeDeleteObservation"
             do {
                 let observed = try driver.observe()
                 try observed.checkFresh(now: uptime())
                 let rows = observed.routes.filter { $0.destination == item.route.destination }
                 // All-scope absence is sufficient to refrain from deletion, regardless
                 // of which actor removed it. It does not recreate deletion authority.
-                if rows.isEmpty { try note("alreadyAbsent", item.index); continue }
+                if rows.isEmpty {
+                    stage = "alreadyAbsentJournal"
+                    try note("alreadyAbsent", item.index); continue
+                }
                 guard rows.count == 1, let row = rows.first, item.route.matches(row),
                       item.row == nil || row == item.row, driver.drainEvents(), driver.owns(item.token) else {
+                    recordCleanupFailure("ownershipCheck", "unconfirmed")
                     remaining.append(item); continue
                 }
+                stage = "willRemoveJournal"
                 try note("willRemove", item.index)
-                guard case .acknowledged = driver.remove(item.token) else { remaining.append(item); continue }
+                guard case .acknowledged = driver.remove(item.token) else {
+                    recordCleanupFailure("delete", "unconfirmed")
+                    remaining.append(item); continue
+                }
+                stage = "afterDeleteObservation"
                 let after = try driver.observe()
                 try after.checkFresh(now: uptime())
                 guard !after.routes.contains(where: { $0.destination == item.route.destination }) else {
+                    recordCleanupFailure("afterDeleteReadback", "stillPresent")
                     remaining.append(item); continue
                 }
+                stage = "removeReadbackJournal"
                 try note("removeReadback", item.index)
-            } catch { remaining.append(item) }
+            } catch {
+                let category = (error as? ExternalError)?.rawValue ??
+                    (error as? ExternalLeaseFailure)?.rawValue ??
+                    (error is ExternalRouteParseDiagnostic ? "routeParse" : "unknown")
+                recordCleanupFailure(stage, category)
+                remaining.append(item)
+            }
         }
         owned = remaining.reversed()
         if let final = try? driver.observe() {
@@ -206,9 +229,12 @@ public final class ExternalLeaseTransaction {
         }
         if journalStarted {
             do { try journal.finish() }
-            catch { state = .recoveryRequired; failure = .journalFailed; return }
+            catch { recordCleanupFailure("finishJournal", "journalFailed"); state = .recoveryRequired; failure = .journalFailed; return }
         }
         state = .closed
+    }
+    private func recordCleanupFailure(_ stage: String, _ category: String) {
+        if cleanupDiagnostic == nil { cleanupDiagnostic = "stage=\(stage) reason=\(category)" }
     }
     private func checkLive(review: Bool = false) throws {
         let time = now()
@@ -238,14 +264,30 @@ public final class ExternalLeaseTransaction {
         let routesAdded = rows.subtracting(plan.baseline.routes).count
         let routesRemoved = plan.baseline.routes.subtracting(rows).count
         guard !interfacesChanged, !physicalPathsChanged, !dnsChanged,
-              routesAdded == 0, routesRemoved == 0 else {
+              ExternalRouteEpoch.rows(rows) == ExternalRouteEpoch.rows(plan.baseline.routes) else {
             snapshotChangeSummary = "interfaces_changed=\(interfacesChanged) physical_paths_changed=\(physicalPathsChanged) " +
                 "dns_changed=\(dnsChanged) routes_added=\(routesAdded) routes_removed=\(routesRemoved)"
+            func shapes(_ values: Set<ExternalRoute>) -> String {
+                values.map { row in
+                    let kind = row.interface.hasPrefix("utun") ? "utun" : (row.interface.hasPrefix("en") ? "en" : "other")
+                    let flags = row.flags.filter { "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".contains($0) }.prefix(24)
+                    let gateway = (try? IPv4Address(row.gateway)) != nil ? "ipv4" : (row.gateway.hasPrefix("link#") ? "link" : "other")
+                    return "p\(row.destination.prefixLength)/f=\(flags)/if=\(kind)/gw=\(gateway)/expired=\(row.isExpired)"
+                }.sorted().prefix(2).joined(separator: ",")
+            }
+            func ignoringInterfaceReference(_ values: Set<ExternalRoute>) -> Set<ExternalRoute> {
+                Set(values.map { row in
+                    ExternalRoute(destination: row.destination, gateway: row.gateway, interface: row.interface,
+                                  flags: row.flags.filter { $0 != "i" }, isExpired: row.isExpired)
+                })
+            }
+            let ifrefOnly = ignoringInterfaceReference(rows) == ignoringInterfaceReference(plan.baseline.routes)
+            snapshotRouteChangeShapes = "ifref_only=\(ifrefOnly);added=[\(shapes(rows.subtracting(plan.baseline.routes)))];removed=[\(shapes(plan.baseline.routes.subtracting(rows)))]"
             throw ExternalLeaseFailure.networkChanged
         }
     }
     private static func same(_ a: ExternalObservation, _ b: ExternalObservation) -> Bool {
         Set(a.interfaces) == Set(b.interfaces) && Set(a.physicalPaths) == Set(b.physicalPaths) &&
-        Set(a.observedDNSServers) == Set(b.observedDNSServers) && a.routes == b.routes
+        Set(a.observedDNSServers) == Set(b.observedDNSServers) && ExternalRouteEpoch.rows(a.routes) == ExternalRouteEpoch.rows(b.routes)
     }
 }

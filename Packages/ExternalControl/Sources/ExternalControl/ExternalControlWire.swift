@@ -6,14 +6,20 @@ public enum ExternalControlError: String, Error, Sendable {
     case staleSelection, trialDisabled, recoveryRequired, disconnected, timeout
     case serviceNotEnabled, channelMissing, requestInFlight, proxyUnavailable
     case xpcCodeSigningRejected, xpcInterrupted, xpcInvalid, xpcReplyInvalid, xpcTransport
+    case protocolMismatch
 }
 public enum ExternalControlAction: String, Codable, Sendable { case hello, prepare, apply, status, stop, recoveryAudit, recoveryClear, quiesce }
 public enum ExternalControlState: String, Codable, Sendable {
     case idle, prepared, applying, active, stopping, closed, recoveryRequired, refused
 }
 public struct ExternalControlRequest: Codable, Sendable {
-    public var schema = 1
+    /// Protocol v2: every request carries a per-connection monotonically increasing
+    /// sequence (hello establishes the baseline). Peers without it are a different
+    /// protocol generation and must be answered with protocolMismatch, never retried.
+    public static let currentSchema = 2
+    public var schema = ExternalControlRequest.currentSchema
     public var id = UUID()
+    public var sequence: UInt64?
     public var instance: UUID?
     public var action: ExternalControlAction
     public var profile: UUID?
@@ -28,10 +34,11 @@ public struct ExternalControlRequest: Codable, Sendable {
     public static func decode(_ data: Data) throws -> Self {
         guard !data.isEmpty, data.count <= 16_384,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              Set(object.keys).isSubset(of: ["schema", "id", "instance", "action", "profile", "revision", "rules", "ticket"]),
-              let value = try? JSONDecoder().decode(Self.self, from: data), value.schema == 1 else {
+              Set(object.keys).isSubset(of: ["schema", "id", "instance", "action", "profile", "revision", "rules", "ticket", "sequence"]),
+              let value = try? JSONDecoder().decode(Self.self, from: data), value.schema == currentSchema else {
             throw ExternalControlError.invalidRequest
         }
+        guard let sequence = value.sequence, sequence != 0 else { throw ExternalControlError.invalidRequest }
         let noSelection = value.profile == nil && value.revision == nil && value.rules == nil
         switch value.action {
         case .hello:
@@ -51,6 +58,15 @@ public struct ExternalControlRequest: Codable, Sendable {
             guard value.instance != nil, noSelection, value.ticket == nil else { throw ExternalControlError.invalidRequest }
         }
         return value
+    }
+    /// Minimal raw-JSON probe used only to answer a foreign protocol generation with
+    /// protocolMismatch. Never trusts payload semantics beyond id and schema.
+    public static func protocolProbe(_ data: Data) -> (id: UUID, schema: Int)? {
+        guard !data.isEmpty, data.count <= 16_384,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let idString = object["id"] as? String, let id = UUID(uuidString: idString),
+              let schema = object["schema"] as? Int else { return nil }
+        return (id, schema)
     }
     public func encoded() throws -> Data { try JSONEncoder().encode(self) }
 }
@@ -80,7 +96,7 @@ public struct ExternalControlResult: Codable, Sendable {
     }
 }
 public struct ExternalControlReply: Codable, Sendable {
-    public var schema = 1
+    public var schema = ExternalControlRequest.currentSchema
     public let requestID: UUID
     public let instance: UUID
     public let canApply: Bool
@@ -93,7 +109,7 @@ public struct ExternalControlReply: Codable, Sendable {
     public func encoded() -> Data { (try? JSONEncoder().encode(self)) ?? Data() }
     public static func decode(_ data: Data, request: ExternalControlRequest) throws -> Self {
         guard data.count <= 16_384, let value = try? JSONDecoder().decode(Self.self, from: data),
-              value.schema == 1, value.requestID == request.id,
+              value.schema == ExternalControlRequest.currentSchema, value.requestID == request.id,
               request.instance == nil || value.instance == request.instance,
               value.proposals.count <= 8, (0...8).contains(value.result.owned),
               (0...8).contains(value.result.recoveryCandidates), (0...8).contains(value.result.recoveryPresent),

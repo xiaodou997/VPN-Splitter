@@ -35,9 +35,10 @@ public struct ExternalSystemSnapshotReader: Sendable {
                     }
                 }
             }
-            // Compare semantic rows, excluding countdowns but retaining expired status. No automatic
+            // Compare semantic rows, excluding countdowns and scoped-neighbor reference bits, retaining expired status. No automatic
             // retry. This is a bounded observation window, not a kernel atomic snapshot.
-            guard routes == (try ExternalRouteTable.parseDiagnosing(readRoutes())), interfaces == (try nics()),
+            guard ExternalRouteEpoch.rows(routes) == ExternalRouteEpoch.rows(try ExternalRouteTable.parseDiagnosing(readRoutes())),
+                  interfaces == (try nics()),
                   NSDictionary(dictionary: before).isEqual(to: try values(store)) else { throw ExternalError.changedDuringRead }
             try Task.checkCancellation()
             return try ExternalObservation(capturedAtUptime: began,
