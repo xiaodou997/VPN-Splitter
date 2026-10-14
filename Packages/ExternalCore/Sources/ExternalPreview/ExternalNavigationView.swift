@@ -31,6 +31,7 @@ struct ExternalRootView: View {
     @ObservedObject var profiles: ExternalProfilesModel
     @ObservedObject var helper: ExternalHelperModel
     @ObservedObject var flowBridge: ExternalFlowBridgeModel
+    @ObservedObject var watchdog: ExternalWatchdogModel
     @Binding var selection: ExternalSidebarSection?
 
     var body: some View {
@@ -94,7 +95,7 @@ struct ExternalRootView: View {
     @ViewBuilder private var detail: some View {
         switch selection ?? .overview {
         case .overview:
-            ExternalOverviewPage(model: model, profiles: profiles, helper: helper, selection: $selection)
+            ExternalOverviewPage(model: model, profiles: profiles, helper: helper, watchdog: watchdog, selection: $selection)
         case .rules:
             ExternalRulesPage(profiles: profiles)
         case .session:
@@ -132,6 +133,7 @@ struct ExternalOverviewPage: View {
     @ObservedObject var model: ExternalModel
     @ObservedObject var profiles: ExternalProfilesModel
     @ObservedObject var helper: ExternalHelperModel
+    @ObservedObject var watchdog: ExternalWatchdogModel
     @Binding var selection: ExternalSidebarSection?
     var body: some View {
         ScrollView {
@@ -149,6 +151,31 @@ struct ExternalOverviewPage: View {
                     statusCard("Helper", systemImage: "lock.shield",
                                value: helper.registration,
                                detail: helper.cleanupUnconfirmed ? "有清理/恢复状态待确认" : "无未确认清理")
+                }
+                GroupBox("VPN 状态监测（只读）") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LabeledContent("状态") {
+                            Text(watchdog.running ? "监测中 · \(watchdog.healthTitle)" :
+                                 (watchdog.health != nil ? "已停止 · 最后判定：\(watchdog.healthTitle)" : "未监测"))
+                        }
+                        Text(watchdog.health != nil ? watchdog.healthDetail : watchdog.message)
+                            .font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                        if !watchdog.events.isEmpty {
+                            Divider()
+                            ForEach(watchdog.events.prefix(8)) { record in
+                                Text(watchdog.eventSummary(record.event)).font(.caption)
+                            }
+                        }
+                        HStack {
+                            if watchdog.running {
+                                Button("停止监测") { watchdog.stop() }
+                            } else {
+                                Button("开始监测") { watchdog.start() }.buttonStyle(.borderedProminent)
+                            }
+                            Text("只读提示：不自动暂停规则、不撤销路由；睡眠/唤醒自动停止。")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
                 }
                 HStack {
                     Button("检测当前网络") { model.detect(previewRules: false) }.disabled(model.busy)

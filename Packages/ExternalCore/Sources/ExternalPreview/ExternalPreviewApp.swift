@@ -73,16 +73,19 @@ struct ExternalPreviewApp: App {
     @StateObject private var profiles: ExternalProfilesModel
     @StateObject private var helper: ExternalHelperModel
     @StateObject private var flowBridge: ExternalFlowBridgeModel
+    @StateObject private var watchdog: ExternalWatchdogModel
     @State private var section: ExternalSidebarSection? = .overview
     init() {
         let network = ExternalModel()
         let documents = ExternalProfilesModel()
         let control = ExternalHelperModel()
         let flow = ExternalFlowBridgeModel()
+        let monitor = ExternalWatchdogModel()
         _model = StateObject(wrappedValue: network)
         _profiles = StateObject(wrappedValue: documents)
         _helper = StateObject(wrappedValue: control)
         _flowBridge = StateObject(wrappedValue: flow)
+        _watchdog = StateObject(wrappedValue: monitor)
         ExternalTerminationDelegate.shouldTerminate = { [weak network, weak documents, weak control] in
             guard documents?.confirmDiscard() != false, control?.confirmQuit() != false else { return false }
             network?.cancel(); return true
@@ -91,12 +94,12 @@ struct ExternalPreviewApp: App {
     var body: some Scene {
         WindowGroup("VPN-Splitter · 第三方 VPN") {
             ExternalRootView(model: model, profiles: profiles, helper: helper,
-                             flowBridge: flowBridge, selection: $section)
+                             flowBridge: flowBridge, watchdog: watchdog, selection: $section)
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.willSleepNotification)) { _ in
-                    model.cancel(); helper.invalidate()
+                    model.cancel(); helper.invalidate(); watchdog.stop()
                 }
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-                    model.cancel(); helper.invalidate()
+                    model.cancel(); helper.invalidate(); watchdog.stop()
                 }
         }
         .commands {
@@ -120,6 +123,10 @@ struct ExternalPreviewApp: App {
                 Button("检测当前网络") { section = .session; model.detect(previewRules: false) }
                     .keyboardShortcut("r", modifiers: .command)
                     .disabled(model.busy)
+                Button(watchdog.running ? "停止 VPN 监测" : "开始 VPN 监测（只读）") {
+                    section = .overview
+                    if watchdog.running { watchdog.stop() } else { watchdog.start() }
+                }
                 Button("预览当前规则") {
                     section = .session
                     model.rules = profiles.enabledRules
