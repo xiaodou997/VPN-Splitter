@@ -10,20 +10,66 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
     public var withSourceSigningIdentifier = 0
     public var withRemoteHostname = 0
     public var withRemoteEndpoint = 0
+    /// Compiled DIRECT rule count at startProxy (0 = absent or rejected).
+    public var rulesLoaded = 0
+    /// startProxy calls whose rules blob failed decode/compile.
+    public var rulesRejected = 0
+    /// DIRECT-matched flows handed back because no unique physical interface.
+    public var relayRefusedInterface = 0
+    /// DIRECT-matched flows closed because the concurrency limit was reached.
+    public var relayRefusedLimit = 0
+    public var relayStarted = 0
+    public var relayActive = 0
+    public var relayCompleted = 0
+    public var relayFailed = 0
+    public var relayCancelled = 0
 
     public init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case format, total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint
+        case rulesLoaded, rulesRejected, relayRefusedInterface, relayRefusedLimit
+        case relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decode(String.self, forKey: .format)
+        total = try container.decode(Int.self, forKey: .total)
+        tcp = try container.decode(Int.self, forKey: .tcp)
+        udp = try container.decode(Int.self, forKey: .udp)
+        withSourceSigningIdentifier = try container.decode(Int.self, forKey: .withSourceSigningIdentifier)
+        withRemoteHostname = try container.decode(Int.self, forKey: .withRemoteHostname)
+        withRemoteEndpoint = try container.decode(Int.self, forKey: .withRemoteEndpoint)
+        rulesLoaded = try container.decodeIfPresent(Int.self, forKey: .rulesLoaded) ?? 0
+        rulesRejected = try container.decodeIfPresent(Int.self, forKey: .rulesRejected) ?? 0
+        relayRefusedInterface = try container.decodeIfPresent(Int.self, forKey: .relayRefusedInterface) ?? 0
+        relayRefusedLimit = try container.decodeIfPresent(Int.self, forKey: .relayRefusedLimit) ?? 0
+        relayStarted = try container.decodeIfPresent(Int.self, forKey: .relayStarted) ?? 0
+        relayActive = try container.decodeIfPresent(Int.self, forKey: .relayActive) ?? 0
+        relayCompleted = try container.decodeIfPresent(Int.self, forKey: .relayCompleted) ?? 0
+        relayFailed = try container.decodeIfPresent(Int.self, forKey: .relayFailed) ?? 0
+        relayCancelled = try container.decodeIfPresent(Int.self, forKey: .relayCancelled) ?? 0
+    }
 
     public var appIdentityObservable: Bool { total > 0 && withSourceSigningIdentifier > 0 }
     public var hostnameObservable: Bool { total > 0 && withRemoteHostname > 0 }
 
     public func validated() throws -> Self {
         guard format == Self.schema else { throw ExternalFlowProbeWireError.unsupportedVersion }
-        let values = [total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint]
+        let values = [total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint,
+                      rulesRejected, relayRefusedInterface, relayRefusedLimit,
+                      relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled]
         guard values.allSatisfy({ $0 >= 0 && $0 <= 10_000_000 }),
+              (0...ExternalFlowRulesWire.maxRules).contains(rulesLoaded),
               tcp <= total, udp <= total,
               withSourceSigningIdentifier <= total,
               withRemoteHostname <= total,
-              withRemoteEndpoint <= total else {
+              withRemoteEndpoint <= total,
+              relayRefusedInterface <= total,
+              relayRefusedLimit <= total,
+              relayActive <= relayStarted,
+              relayCompleted + relayFailed + relayCancelled <= relayStarted else {
             throw ExternalFlowProbeWireError.invalidReport
         }
         return self
