@@ -26,7 +26,7 @@ flow_copying=TCP_UDP_TRIAL
 
 ## FLOW-01 provider 行为
 
-`ExternalTransparentProbeProvider` 首批只设置 outbound TCP Transparent Proxy 匹配规则并观察进入 `handleNewFlow` 的 flow；UDP/QUIC 不在这次探针范围，避免把 DNS/UDP 干扰混入首个能力判断。它只累计以下计数，不记录或回传真实域名、App ID、IP、端口或报文：
+`ExternalTransparentProbeProvider` 设置 outbound TCP + UDP Transparent Proxy 匹配规则（另有 `excludedNetworkRules` 把目的端口 53 的 DNS 流量排除在代理外）并观察进入 `handleNewFlow` 的 flow。它只累计以下计数，不记录或回传真实域名、App ID、IP、端口或报文：
 
 - flow 总数；
 - TCP / UDP 类型计数；
@@ -59,7 +59,7 @@ flow_copying=TCP_UDP_TRIAL
 - 接管后打开 flow，`readDatagrams` 按远端 endpoint 分组，每 endpoint 一条绑定物理接口的 `NWConnection`（UDP）；响应经 `writeDatagrams` 写回并保留来源 endpoint。单 flow endpoint 上限 8、单 datagram 上限 65535 字节，超限关闭 flow 并计入 `relayUDPFailed`。
 - UDP 无 EOF：75 秒空闲（复用 relay `idleTimeout`）为正常结束，计 `relayUDPCompleted`；错误/取消仍 fail-closed。
 - 报告只新增纯计数：`relayUDPStarted/Active/Completed/Failed/Cancelled/RefusedLimit`；不记录 endpoint、域名、App ID 或 payload。
-- DNS 不改路径：不匹配规则的 UDP/53 自然走原 VPN。
+- DNS 在拦截层排除：`excludedNetworkRules` 排除目的端口 53（TCP/UDP），DNS 流量完全不进入透明代理——DNS flow 的 remoteHostname 会被 DOMAIN 规则匹配，且接管前看不到端口，不能用规则判断代替（真机实测 fake-ip DNS 被误接管导致解析失败）。
 - 真机出口对照（STUN 绑定回包读出口 IP）通过前不宣称 UDP 分流可用。
 
 ## 规则核心

@@ -33,7 +33,7 @@ struct FlowProbeApp: App {
                     Text("规则来自主 App「Flow 实验」页显式导出的 Flow 桥文件；无规则时 provider 保持 pass-through 探针。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Section("3 · TCP 探针 / DIRECT 试验") {
+                Section("3 · TCP/UDP 探针 / DIRECT 试验") {
                     HStack {
                         Button("启动探针") { control.startProbe() }.buttonStyle(.borderedProminent)
                         Button("停止探针") { control.stopProbe() }
@@ -43,9 +43,9 @@ struct FlowProbeApp: App {
                         Button("暂停 DIRECT relay") { control.setRelayPaused(true) }
                         Button("恢复 DIRECT relay") { control.setRelayPaused(false) }
                     }.disabled(control.busy)
-                    Text("暂停用于第三方 VPN 异常等场景：暂停后匹配 DIRECT 的 TCP flow 被关闭而不是直连（fail-closed），未匹配 flow 不变；暂停只存在于运行中的 provider，重启探针即恢复。")
+                    Text("暂停用于第三方 VPN 异常等场景：暂停后匹配 DIRECT 的 TCP/UDP flow 被关闭而不是直连（fail-closed），未匹配 flow 不变；暂停只存在于运行中的 provider，重启探针即恢复。")
                         .font(.caption).foregroundStyle(.secondary)
-                    Text("未写入规则时 provider 对所有 flow 返回 false。写入 DIRECT 规则后，匹配的 TCP flow 由 provider 经物理接口直连复制（FLOW-02 试验）；未匹配 flow 仍走系统/VPN 路径。")
+                    Text("未写入规则时 provider 对所有 flow 返回 false。写入 DIRECT 规则后，匹配的 TCP flow 由 provider 经物理接口直连复制（FLOW-02），匹配的 UDP flow 按应用/域名规则经 endpoint 键控 relay 直连（FLOW-03）；未匹配 flow 仍走系统/VPN 路径；DNS（目的端口 53，TCP/UDP）在拦截层排除，不进入代理。")
                         .foregroundStyle(.secondary)
                     Text("发布只写本机用户目录中的计数/状态快照；不会写 hostname、App ID、IP、端口或报文。")
                         .font(.caption).foregroundStyle(.secondary)

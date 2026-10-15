@@ -66,7 +66,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
                 manager = try await Self.requireManager()
             }
             try manager.connection.startVPNTunnel()
-            self.configurationStatus = "已请求启动 TCP metadata 探针；provider 仍对所有 flow 返回 false。"
+            self.configurationStatus = "已请求启动 TCP/UDP metadata 探针；provider 仍对所有 flow 返回 false；DNS（目的端口 53）不进入代理。"
         }
     }
 
@@ -103,7 +103,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             provider.serverAddress = "127.0.0.1"
             manager.protocolConfiguration = provider
             try await manager.saveToPreferences()
-            self.configurationStatus = "已写入 \(wire.rules.count) 条 DIRECT 试验规则；重启探针后生效。匹配 TCP flow 将由 provider 经物理接口直连。"
+            self.configurationStatus = "已写入 \(wire.rules.count) 条 DIRECT 试验规则；重启探针后生效。匹配的 TCP/UDP flow 将由 provider 经物理接口直连；DNS（目的端口 53）不进入代理。"
         }
     }
 
@@ -188,8 +188,8 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             throw FlowProbeControlError.providerMessageFailed
         }
         return report.relayPaused == paused
-            ? (paused ? "DIRECT relay 已暂停：匹配的 TCP flow 将被关闭而非直连，未匹配 flow 不变；重启探针会清除暂停。"
-                      : "DIRECT relay 已恢复：匹配的 TCP flow 继续经物理接口直连。")
+            ? (paused ? "DIRECT relay 已暂停：匹配的 TCP/UDP flow 将被关闭而非直连，未匹配 flow 不变；重启探针会清除暂停。"
+                      : "DIRECT relay 已恢复：匹配的 TCP/UDP flow 继续经物理接口直连。")
             : "暂停状态与预期不一致（relayPaused=\(report.relayPaused)）；请重新发布报告核对。"
     }
 

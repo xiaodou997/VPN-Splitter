@@ -40,6 +40,12 @@ class ExternalFlowContracts(unittest.TestCase):
         for token in ['protocol: .UDP', 'NEAppProxyUDPFlow', 'readDatagrams', 'writeDatagrams',
                       'ExternalFlowUDPRelay(', 'remoteEndpointHost: nil']:
             self.assertIn(token, provider)
+        # DNS never enters the proxy: destination port 53 (UDP and TCP) is
+        # excluded at the interception layer, because a DNS flow's
+        # remoteHostname would match DOMAIN rules and the port is invisible
+        # before take-over (ADR-EX-FLOW-03 decision 6).
+        self.assertIn('excludedNetworkRules', provider)
+        self.assertIn('NWEndpoint.hostPort(host: "0.0.0.0", port: 53)', provider)
         for token in ['maxEndpointsPerFlow', 'maxDatagramBytes', '65_535', 'idleTimeout',
                       'ExternalFlowUDPEndpoint', 'ExternalFlowUDPDatagramSource',
                       'ExternalFlowUDPLinkFactory', 'idleExpired']:

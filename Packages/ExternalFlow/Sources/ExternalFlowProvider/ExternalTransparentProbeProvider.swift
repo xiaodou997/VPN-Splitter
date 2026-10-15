@@ -84,6 +84,21 @@ public final class ExternalTransparentProbeProvider: NETransparentProxyProvider 
                           localNetworkEndpoint: nil, localPrefix: 0,
                           protocol: .UDP, direction: .outbound)
         ]
+        // DNS never enters the proxy (ADR-EX-FLOW-03 decision 6). A DNS flow's
+        // remoteHostname is the queried name, so DOMAIN rules would match it,
+        // and NEAppProxyUDPFlow exposes no remote endpoint before take-over, so
+        // port 53 cannot be excluded in handleNewFlow. Excluding it here keeps
+        // VPN fake-ip resolvers (e.g. 198.18.0.0/16) reachable only via the VPN
+        // from being dialed on the physical interface, which has no route.
+        let dnsEndpoint = NWEndpoint.hostPort(host: "0.0.0.0", port: 53)
+        settings.excludedNetworkRules = [
+            NENetworkRule(remoteNetworkEndpoint: dnsEndpoint, remotePrefix: 0,
+                          localNetworkEndpoint: nil, localPrefix: 0,
+                          protocol: .UDP, direction: .outbound),
+            NENetworkRule(remoteNetworkEndpoint: dnsEndpoint, remotePrefix: 0,
+                          localNetworkEndpoint: nil, localPrefix: 0,
+                          protocol: .TCP, direction: .outbound)
+        ]
         setTunnelNetworkSettings(settings, completionHandler: completionHandler)
     }
 
