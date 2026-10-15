@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-09-29 / EX-FLOW-01F Developer ID 公证、systemextension 激活、第三方 VPN 共存和 provider round-trip 真机验证。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-10-15 / EX-INT-09 VPN 隔离守卫真机断开/重连自动隔离闭环通过；EX-INT-03B 协议 v2 真机 XPC 往返与受控 route-trial 闭环通过；FLOW-02 TCP DIRECT relay 数据面真机样本通过。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
@@ -8,13 +8,14 @@
 | --- | --- |
 | EX-INT-01 / 02 只读路径 | 已有用户报告的执行器原生构建、inspect 和原生 GET probe 通过；界面中的检测仍只读，不等于真实双出口验收 |
 | EX-INT-02 前台候选 | 旧 ADD 回包超时及残留已人工恢复；FIX-08 的前两次复验分别在写入前网络变化、活动期观察失败处保守停止。第三次单目标短时实验取得 ADD ACK/readback，正常回车停止后 DELETE 阶段无内核错误、零回执、快照不变；独立查询目标回 `utun8`、用户审计零残留。该样本的正常自动撤销门槛通过；60 秒到期、真实双出口、异常/切网/睡眠及 Helper 路径仍待验收 |
-| EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过。03B 的无路由写入控制 App/Helper 已完成 Developer ID 时间戳签名与 Apple 公证，本机已完成系统注册/批准并观察到 Helper 启动；backup 线 sustained 构建已取得 hello→recoveryAudit / noRecovery 的 USER_REPORTED PASS，安全注销已由用户状态及独立系统查询确认，ad-hoc / 同 Team 错 ID 拒绝及有效新连接对照通过，重复核查、心跳丢失与自然租约到期、10 次正常撤销与 10 次 App 失联循环、真实双路径访问、本工具睡眠撤销/唤醒 noRecovery 均有样本证据，见 [原生路由证据](evidence/ex-int-03b-helper-route-native.md)；main 线首次只读通信返回 unavailable 的根因已定位为协议代际不匹配（backup 线 Helper 要求 sequence，main 线客户端未发送，hello 被拒 invalidRequest 后误报 authentication），见 [原生诊断](evidence/ex-int-03b-helper-native-diagnostic.md)。两线已统一为协议 schema=2 + .v2 服务名（ADR-EX-INT-06），v2 构建的真机回归（hello+status idle/none → Recovery → 受控 route-trial）仍待验收 |
+| EX-INT-03A/03B | 规则方案管理与认证 Helper/应用内有限会话已接线；03A 用户反馈通过。两线已统一为协议 schema=2 + .v2 服务名（ADR-EX-INT-06），v2 构建真机回归已通过：hello+status idle/none、Recovery noRecovery、受控 route-trial（GUI → 认证 Helper → ADD → 内核读回 → 自动撤销 → 零残留审计）全链路真机通过，见 [协议 v2 真机证据](evidence/ex-int-03b-protocol-v2-realmachine.md)；此前 `unavailable` 阻塞点（协议代际不匹配）正式闭环。边界：目标实际流量双出口对照未测、sustained 模式未上真机、route_trial 仍为编译时显式开关且默认禁用 |
 | EX-INT-03C | Rule V2：方案可保存 IP-CIDR、DOMAIN、DOMAIN-SUFFIX、DOMAIN-KEYWORD、APPLICATION；旧 v1 迁移为 IP-CIDR。当前 Route Helper 遇到 flow-only 规则整体阻断，不静默跳过 |
 | EX-INT-03D | Helper 协议新增恢复审计/清除动作；GUI 可只读核查候选数，仅在一次零残留审计后开放二次新鲜核查并清除本工具 marker。永不从 marker 重建删除权，也无 GUI 强删路由 |
-| EX-FLOW-01A–01F | first-match 核心 + TCP pass-through provider + App/.systemextension + 显式控制器 + 脱敏报告桥。01F 已在本机完成 Developer ID 签名/公证、扩展激活、与 StrongVPN 共存、Provider message=pass 和安全停止/移除。累计 467 条 TCP flow 的 App ID 467、hostname 177；主程序 Flow 页读取为 USER_REPORTED PASS。仍未实现 DIRECT 数据转发，hostname 缺失场景待受控分析 |
+| EX-FLOW-01A–02 | first-match 核心 + TCP pass-through provider + App/.systemextension + 显式控制器 + 脱敏报告桥。FLOW-02 TCP DIRECT relay 数据面已实现并有真机样本：匹配规则的 TCP flow 由 provider 绑物理接口直连复制（fail-closed），见 [FLOW-02 真机证据](evidence/ex-flow-02-realmachine.md)。hostname 缺失场景（467 条 TCP flow 中 hostname 可见 177）仍待受控分析；UDP/QUIC、DNS、睡眠/切网未验 |
+| EX-INT-07 / 08 / 09 | VPN 健康 watchdog（只读）、relay 热暂停（fail-closed，两个有界动词）、VPN 隔离守卫（断开自动暂停 + 假在线双路探测 + 恢复自动解除）均已真机验证，见 [07](evidence/ex-int-07-vpn-watchdog.md)/[08](evidence/ex-int-08-watchdog-response.md)/[09](evidence/ex-int-09-isolation-guard.md) 证据。边界：守卫需 Flow Probe App 保持运行、睡眠不工作、vpnPathDead 路径仅单测覆盖、Route 侧不做隔离 |
 | External UI | 主窗口为概览/规则/分流会话/恢复/Flow 实验侧边栏；Helper 注册放到 Settings；APPLICATION 规则新增本机 App 模糊搜索/选择，保存显示名 + Signing ID，不保存路径 |
 | 持续 IP 试用 | 用户确认优先交付实际试用；显式 sustained 签名候选取消 60 秒活动上限，保留心跳/身份/网络变化撤销。原实验入口仍限时；见 [试用证据](evidence/ex-int-03b-sustained-preview.md)及 ADR-EX-INT-05，非完整发行稳定性通过 |
-| External 下一主线 | 导航/APP 选择器、Helper 正常撤销/恢复清理与本工具睡眠样本已在 backup 线取得原生证据；协议 v2 整合后以同一 merged commit 重建并重验真机。继续本工具边界验收，并以受控 App/域名样本分析 hostname 缺失和降级规则，推进 FLOW-02 TCP DIRECT 设计。FLOW-01F 的 pass-through 结果不等于真实直连 |
+| External 下一主线 | 协议 v2 整合与真机回归、FLOW-02 relay 数据面与隔离守卫已完成。剩余验收：route-trial 真实双出口流量对照、sustained 模式真机、FLOW-02 完整矩阵（UDP/QUIC、DNS、睡眠/切网）、hostname 缺失受控分析；之后回到 WireGuard 真机闭环，OpenVPN 最后 |
 | OpenVPN Backlog | 暂停实现；不占当前 External 主线资源。保留原 S3 需求和后续兼容路线 |
 | WireGuard 暂存 | WG-INT-10 + FIX-01 已有正式集成 unsigned USER_REPORTED PASS；运行/签名/双出口/独立恢复仍未验收，暂不催办签名或重建 |
 | LocalDev | LD-03B 及用户原操作/数据保留；本批不修改其 UI、凭据权限或草稿格式 |

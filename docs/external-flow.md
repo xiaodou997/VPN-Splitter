@@ -1,6 +1,6 @@
 # External Flow Bypass 开发入口
 
-EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP provider、签名并公证的 App + systemextension、显式控制器以及主程序只读报告桥；FLOW-01F 已完成一次本机 pass-through 与第三方 VPN 共存验证。FLOW-02 已实现 TCP DIRECT relay 数据面（匹配规则的 TCP flow 由 provider 绑定物理接口直连复制，fail-closed），但**真机验证未完成，仍不得宣称可用**；hostname 缺失场景仍待受控分析。
+EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP provider、签名并公证的 App + systemextension、显式控制器以及主程序只读报告桥；FLOW-01F 已完成一次本机 pass-through 与第三方 VPN 共存验证。FLOW-02 已实现 TCP DIRECT relay 数据面（匹配规则的 TCP flow 由 provider 绑定物理接口直连复制，fail-closed），TCP 直连与暂停闭环已有真机样本（[ex-flow-02-realmachine.md](evidence/ex-flow-02-realmachine.md)、[ex-int-09-isolation-guard.md](evidence/ex-int-09-isolation-guard.md)），但**完整验收矩阵（UDP/QUIC、DNS、睡眠/切网、hostname 缺失分析）未完成，仍不得宣称可用**。
 
 ## 当前安全入口
 
@@ -38,7 +38,7 @@ flow_copying=TCP_ONLY_TRIAL
 
 包含 App/域名规则的真正执行仍需受控样本验证。FLOW-01F 已确认 Transparent Proxy 与原第三方 VPN 共存、来源 App signing identifier 在本次累计样本中可见；hostname 在约 38% 的累计样本中可见。必须先分析缺失场景和无法观察时的降级行为，不能把 Probe 观察直接当作 DIRECT 执行能力。
 
-## FLOW-02：TCP DIRECT relay 数据面（已实现，真机未验证）
+## FLOW-02：TCP DIRECT relay 数据面（已实现，TCP 样本真机通过；完整验收矩阵未完成）
 
 按 ADR-EX-FLOW-02 实现，仅 TCP、判定同步执行异步、fail-closed：
 
