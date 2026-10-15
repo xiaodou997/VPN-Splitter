@@ -68,7 +68,7 @@ def generate(root: Path, run: Path, generator=None) -> Path:
         objects[gen.ident(role + ".frameworks")]["files"] = []
         objects[gen.ident(role + ".target")]["packageProductDependencies"] = []
 
-    for role, source_names in (("app", ("FlowProbeApp.swift", "FlowProbeController.swift")),
+    for role, source_names in (("app", ("FlowProbeApp.swift", "FlowProbeController.swift", "FlowProbeGuard.swift")),
                                ("tunnel", ("main.swift",))):
         for source_name in source_names:
             source = root / "integrations/external-flow" / source_name
@@ -95,6 +95,22 @@ def generate(root: Path, run: Path, generator=None) -> Path:
     wire_link = add("ExternalFlowWire.link", isa="PBXBuildFile", productRef=wire_dep)
     objects[gen.ident("app.target")]["packageProductDependencies"].append(wire_dep)
     objects[gen.ident("app.frameworks")]["files"].append(wire_link)
+
+    flow_core_dep = add("ExternalFlowCore.dep", isa="XCSwiftPackageProductDependency",
+                        package=package, productName="ExternalFlowCore")
+    flow_core_link = add("ExternalFlowCore.link", isa="PBXBuildFile", productRef=flow_core_dep)
+    objects[gen.ident("app.target")]["packageProductDependencies"].append(flow_core_dep)
+    objects[gen.ident("app.frameworks")]["files"].append(flow_core_link)
+
+    for package_name in ("ExternalCore", "PolicyCore"):
+        package_ref = add(package_name + ".package", isa="XCLocalSwiftPackageReference",
+                          relativePath=os.path.relpath(root / "Packages" / package_name, folder))
+        objects[gen.ident("project")]["packageReferences"].append(package_ref)
+        package_dep = add(package_name + ".dep", isa="XCSwiftPackageProductDependency",
+                          package=package_ref, productName=package_name)
+        package_link = add(package_name + ".link", isa="PBXBuildFile", productRef=package_dep)
+        objects[gen.ident("app.target")]["packageProductDependencies"].append(package_dep)
+        objects[gen.ident("app.frameworks")]["files"].append(package_link)
 
     app_product = objects[gen.ident("app.product")]
     app_product["path"] = "VPN-Splitter-FlowProbe.app"

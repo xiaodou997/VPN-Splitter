@@ -108,6 +108,13 @@ Probe App 只有用户点击“刷新并发布脱敏报告”时才执行：加�
 
 主程序 Flow 页面不会直接访问 `NETransparentProxyManager`；点击“读取最新本机报告”只读取快照，并对超过 5 分钟的结果标记为旧报告。
 
+## EX-INT-08/09：relay 热暂停与 VPN 隔离守卫
+
+Flow Probe App 另有两个显式控制面（均无自动启动）：
+
+- 「暂停/恢复 DIRECT relay」（EX-INT-08）：经 `relay-pause-v1`/`relay-resume-v1` 两个无参数 provider message 热切换；暂停时匹配 DIRECT 的 TCP flow 被**关闭**（fail-closed）而非交还系统路径，未匹配 flow 不变。暂停是运行时状态，不写 preferences，重启探针即清除。
+- 「VPN 隔离守卫」（EX-INT-09，试验）：用户显式开启后，守卫轮询复用 watchdog 只读采集判断第三方 VPN 路由形态，可选对探测目标做 VPN/物理双路裸 TCP 对照探测（只握手、不发送数据；目标命中 DIRECT 规则时拒绝启动）。判定 VPN 断开（路由形态消失）或断流（VPN 路径连续 2 次探测失败）时自动暂停 relay，恢复后自动解除——只解除守卫自己发起的暂停，手动暂停不被接管。不持久化状态、不阻止系统睡眠、需要 App 保持运行。真机断开/重连自动隔离闭环证据见 [ex-int-09-isolation-guard.md](evidence/ex-int-09-isolation-guard.md)。
+
 ## FLOW-01E：签名构建与 round-trip 诊断
 
 默认 `external-flow-build` 仍是 unsigned、只构建不安装。需要进入真实 System Extension 联调时，先执行只读库存检查：

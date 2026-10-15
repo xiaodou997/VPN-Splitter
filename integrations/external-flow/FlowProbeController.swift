@@ -148,24 +148,49 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
     /// the running provider and is cleared by a probe restart.
     func setRelayPaused(_ paused: Bool) {
         perform {
-            let manager = try await Self.requireManager()
-            guard manager.connection.status == .connected else {
-                throw FlowProbeControlError.probeNotConnected
-            }
-            guard let session = manager.connection as? NETunnelProviderSession else {
-                throw FlowProbeControlError.unsupportedSession
-            }
-            let verb = paused ? "relay-pause-v1" : "relay-resume-v1"
-            guard let data = try await Self.sendProviderMessage(session, verb: verb),
-                  !data.isEmpty, data.count <= 16_384,
-                  let report = try? JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated() else {
-                throw FlowProbeControlError.providerMessageFailed
-            }
-            self.configurationStatus = report.relayPaused == paused
-                ? (paused ? "DIRECT relay 已暂停：匹配的 TCP flow 将被关闭而非直连，未匹配 flow 不变；重启探针会清除暂停。"
-                          : "DIRECT relay 已恢复：匹配的 TCP flow 继续经物理接口直连。")
-                : "暂停状态与预期不一致（relayPaused=\(report.relayPaused)）；请重新发布报告核对。"
+            self.configurationStatus = try await self.relayPauseRequest(paused)
         }
+    }
+
+    /// ADR-EX-INT-09: awaitable variant for the isolation guard. Waits for any
+    /// in-flight operation to clear, then sends the verb inline; returns false
+    /// when the pause/resume could not be confirmed by the provider.
+    func setRelayPausedAwaitable(_ paused: Bool) async -> Bool {
+        var waited: Double = 0
+        while busy, waited < 5 {
+            try? await Task.sleep(for: .milliseconds(200))
+            waited += 0.2
+        }
+        guard !busy else { return false }
+        busy = true
+        defer { busy = false }
+        do {
+            configurationStatus = try await relayPauseRequest(paused)
+            return true
+        } catch {
+            configurationStatus = "操作失败：\(Self.safeCode(error))"
+            return false
+        }
+    }
+
+    private func relayPauseRequest(_ paused: Bool) async throws -> String {
+        let manager = try await Self.requireManager()
+        guard manager.connection.status == .connected else {
+            throw FlowProbeControlError.probeNotConnected
+        }
+        guard let session = manager.connection as? NETunnelProviderSession else {
+            throw FlowProbeControlError.unsupportedSession
+        }
+        let verb = paused ? "relay-pause-v1" : "relay-resume-v1"
+        guard let data = try await Self.sendProviderMessage(session, verb: verb),
+              !data.isEmpty, data.count <= 16_384,
+              let report = try? JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated() else {
+            throw FlowProbeControlError.providerMessageFailed
+        }
+        return report.relayPaused == paused
+            ? (paused ? "DIRECT relay 已暂停：匹配的 TCP flow 将被关闭而非直连，未匹配 flow 不变；重启探针会清除暂停。"
+                      : "DIRECT relay 已恢复：匹配的 TCP flow 继续经物理接口直连。")
+            : "暂停状态与预期不一致（relayPaused=\(report.relayPaused)）；请重新发布报告核对。"
     }
 
     private static func sendProviderMessage(_ session: NETunnelProviderSession, verb: String) async throws -> Data? {

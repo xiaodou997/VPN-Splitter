@@ -73,6 +73,44 @@ class ExternalFlowContracts(unittest.TestCase):
         self.assertNotIn('.task {', app)
         self.assertNotIn('.onAppear', app)
 
+    def test_int09_isolation_guard_is_explicit_bounded_and_fail_closed(self):
+        guard_src = (ROOT / 'integrations/external-flow/FlowProbeGuard.swift').read_text()
+        controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
+        app = (ROOT / 'integrations/external-flow/FlowProbeApp.swift').read_text()
+        logic = (PACKAGE / 'Sources/ExternalFlowCore/ExternalFlowGuardLogic.swift').read_text()
+        project = (ROOT / 'tools/external/flow_project.py').read_text()
+        # Pure decision core: bounded threshold, only two pause reasons, and
+        # actuation rollback lives in the logic, not the UI.
+        for token in ['failureThreshold = 2', 'case routeFormLost', 'case vpnPathDead',
+                      'undoPause()', 'undoResume()', 'resumedFrom']:
+            self.assertIn(token, logic)
+        self.assertNotIn('import NetworkExtension', logic)
+        self.assertNotIn('NWConnection', logic)
+        # Guard host: read-only watchdog reuse plus dual-path bare-TCP probe,
+        # actuation only through the two existing provider verbs.
+        for token in ['ExternalWatchdogTracker', 'ExternalFlowGuardLogic',
+                      'ExternalSystemSnapshotReader().capture()', 'NWPathMonitor',
+                      'setRelayPausedAwaitable(true)', 'setRelayPausedAwaitable(false)',
+                      'pollIntervalSeconds', 'probeTimeoutSeconds', 'beginActivity']:
+            self.assertIn(token, guard_src)
+        # Probe safety: a target covered by DIRECT rules is refused.
+        for token in ['targetHitsDirectRule', 'targetMatchesDirectRule', 'ExternalFlowPolicy(rulesWire:']:
+            self.assertIn(token, guard_src)
+        # No persistence, no sleep prevention, no route/DNS/system mutation.
+        for token in ['UserDefaults', 'idleSystemSleepDisabled', 'write(to:',
+                      'Timer(', 'route ', 'resolv']:
+            self.assertNotIn(token, guard_src)
+        # Actuation goes through the controller's bounded awaitable path.
+        self.assertIn('func setRelayPausedAwaitable', controller)
+        self.assertIn('relayPauseRequest', controller)
+        # UI is explicit buttons only; nothing starts automatically.
+        for token in ['开启守卫', '关闭守卫', 'guard_.start()', 'guard_.stop()']:
+            self.assertIn(token, app)
+        # The app target compiles the guard and links the needed packages.
+        self.assertIn('FlowProbeGuard.swift', project)
+        for package_name in ['ExternalCore', 'PolicyCore', 'ExternalFlowCore']:
+            self.assertIn(package_name, project)
+
     def test_builder_never_installs_or_executes(self):
         path = ROOT / 'tools/external/flow-build.py'
         project = ROOT / 'tools/external/flow_project.py'
