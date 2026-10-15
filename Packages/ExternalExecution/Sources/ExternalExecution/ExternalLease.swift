@@ -14,6 +14,9 @@ public struct ExternalLeaseRoute: Hashable, Codable, Sendable {
     public let destination: IPv4CIDR
     public let gateway: IPv4Address
     public let interface: String
+    public init(destination: IPv4CIDR, gateway: IPv4Address, interface: String) {
+        self.destination = destination; self.gateway = gateway; self.interface = interface
+    }
     init(_ proposal: ExternalRouteProposal) {
         destination = proposal.destination; gateway = proposal.gateway; interface = proposal.interface
     }
@@ -70,6 +73,9 @@ public protocol ExternalRouteOperating: AnyObject {
 public protocol ExternalLeaseJournaling: AnyObject {
     func begin(session: UUID, routes: [ExternalLeaseRoute]) throws
     func record(_ event: String, index: Int) throws
+    /// Write-ahead replacement of the route list while a sustained session refreshes
+    /// domain-derived routes; the marker always names the currently owned set.
+    func amend(routes: [ExternalLeaseRoute]) throws
     func finish() throws
 }
 
@@ -89,7 +95,7 @@ public final class ExternalLeaseTransaction {
     /// First cleanup failure: fixed stage/category only, never error descriptions or route values.
     public private(set) var cleanupDiagnostic: String?
     public var ownedCount: Int { owned.count }
-    private struct Owned { let index: Int; let token: UInt64; let route: ExternalLeaseRoute; var row: ExternalRoute? }
+    private struct Owned { var index: Int; let token: UInt64; let route: ExternalLeaseRoute; var row: ExternalRoute?; let refreshable: Bool }
     private let plan: ExternalLeasePlan
     private let driver: any ExternalRouteOperating
     private let journal: any ExternalLeaseJournaling
@@ -102,12 +108,14 @@ public final class ExternalLeaseTransaction {
     private var journalStarted = false
     private var journalHealthy = true
     private var lastClock: TimeInterval
+    private let refreshableDestinations: Set<IPv4CIDR>
 
     public init(plan: ExternalLeasePlan, driver: any ExternalRouteOperating, journal: any ExternalLeaseJournaling,
                 now: @escaping () -> TimeInterval, uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-                cancelled: @escaping () -> Bool = { false }) {
+                cancelled: @escaping () -> Bool = { false }, refreshableDestinations: Set<IPv4CIDR> = []) {
         self.plan = plan; self.driver = driver; self.journal = journal
         self.now = now; self.uptime = uptime; self.cancelled = cancelled; lastClock = plan.reviewedAt
+        self.refreshableDestinations = refreshableDestinations
     }
     public func start(consent: Bool) {
         guard state == .idle else { return }
@@ -136,7 +144,8 @@ public final class ExternalLeaseTransaction {
                     guard token != 0, !owned.contains(where: { $0.token == token }) else {
                         throw ExternalLeaseFailure.routeUncertain
                     }
-                    owned.append(Owned(index: index, token: token, route: route))
+                    owned.append(Owned(index: index, token: token, route: route, row: nil,
+                                       refreshable: refreshableDestinations.contains(route.destination)))
                     uncertainWrite = false
                     try note("addAcknowledged", index)
                     guard driver.drainEvents(), driver.owns(token) else { throw ExternalLeaseFailure.readbackFailed }
@@ -171,6 +180,99 @@ public final class ExternalLeaseTransaction {
             failure = error as? ExternalLeaseFailure ?? .observationFailed
             stop()
         }
+    }
+    /// Sustained sessions only: bounded in-place refresh of domain-derived routes.
+    /// Removals/additions keep the same ownership, readback and write-ahead journal
+    /// discipline as start/stop; any failure terminates the session like poll().
+    /// Static rule destinations are never accepted here.
+    public func refreshRoutes(add routes: [ExternalLeaseRoute], remove destinations: Set<IPv4CIDR>) {
+        guard state == .active, plan.controlledLifetime, !routes.isEmpty || !destinations.isEmpty else { return }
+        do {
+            try checkLive()
+            guard driver.drainEvents(), owned.allSatisfy({ driver.owns($0.token) }) else {
+                throw ExternalLeaseFailure.networkChanged
+            }
+            try checkSnapshot(try driver.observe())
+            var removedAny = false
+            for destination in destinations.sorted() {
+                try checkLive()
+                guard let position = owned.firstIndex(where: { $0.route.destination == destination }) else { continue }
+                let item = owned[position]
+                guard item.refreshable else { throw ExternalLeaseFailure.invalidState }
+                let observed = try driver.observe()
+                try observed.checkFresh(now: uptime())
+                let rows = observed.routes.filter { $0.destination == item.route.destination }
+                if rows.isEmpty {
+                    try note("alreadyAbsent", item.index)
+                    owned.remove(at: position)
+                    removedAny = true
+                    continue
+                }
+                guard rows.count == 1, let row = rows.first, item.route.matches(row),
+                      item.row == nil || row == item.row, driver.drainEvents(), driver.owns(item.token) else {
+                    throw ExternalLeaseFailure.networkChanged
+                }
+                try note("willRemove", item.index)
+                guard case .acknowledged = driver.remove(item.token) else { throw ExternalLeaseFailure.routeRejected }
+                let after = try driver.observe()
+                try after.checkFresh(now: uptime())
+                guard !after.routes.contains(where: { $0.destination == item.route.destination }) else {
+                    throw ExternalLeaseFailure.readbackFailed
+                }
+                try note("removeReadback", item.index)
+                owned.remove(at: position)
+                removedAny = true
+            }
+            // Write-ahead: the marker names the post-refresh owned set before any ADD.
+            let additions = routes.filter { route in
+                !owned.contains(where: { $0.route.destination == route.destination })
+            }
+            if (removedAny || !additions.isEmpty), journalStarted, !owned.isEmpty || !additions.isEmpty {
+                let intended = owned.map(\.route) + additions
+                guard (1...8).contains(intended.count) else { throw ExternalLeaseFailure.limit }
+                try amend(intended)
+                for position in owned.indices { owned[position].index = position }
+            }
+            for route in additions {
+                guard owned.count < 8 else { break }
+                try checkLive()
+                guard driver.drainEvents() else { throw ExternalLeaseFailure.observationFailed }
+                try checkSnapshot(try driver.observe())
+                let index = owned.count // Position in the just-amended marker route list.
+                try note("willAdd", index)
+                try checkLive()
+                uncertainWrite = true // Until a matching, definitive kernel result exists.
+                switch driver.add(route) {
+                case .rejected: uncertainWrite = false; throw ExternalLeaseFailure.routeRejected
+                case .uncertain: throw ExternalLeaseFailure.routeUncertain
+                case .acknowledged(let token):
+                    guard token != 0, !owned.contains(where: { $0.token == token }) else {
+                        throw ExternalLeaseFailure.routeUncertain
+                    }
+                    owned.append(Owned(index: index, token: token, route: route, row: nil, refreshable: true))
+                    uncertainWrite = false
+                    try note("addAcknowledged", index)
+                    guard driver.drainEvents(), driver.owns(token) else { throw ExternalLeaseFailure.readbackFailed }
+                    let observation = try driver.observe()
+                    let rows = observation.routes.filter { $0.destination == route.destination }
+                    guard rows.count == 1, let row = rows.first, route.matches(row) else {
+                        throw ExternalLeaseFailure.readbackFailed
+                    }
+                    owned[owned.count - 1].row = row
+                    try checkSnapshot(observation)
+                    try note("addReadback", index)
+                }
+            }
+            try checkLive()
+        } catch {
+            recordObservationError(error)
+            failure = error as? ExternalLeaseFailure ?? .observationFailed
+            stop()
+        }
+    }
+    private func amend(_ routes: [ExternalLeaseRoute]) throws {
+        do { try journal.amend(routes: routes) }
+        catch { journalHealthy = false; throw ExternalLeaseFailure.journalFailed }
     }
     public func stop() {
         guard state == .active || state == .applying || state == .idle else { return }

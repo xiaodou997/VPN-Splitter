@@ -87,7 +87,7 @@ Flow Bypass 首选研究 macOS NETransparentProxyProvider：系统把匹配流�
 
 应用规则的 UI 允许按软件显示名模糊搜索，但保存执行身份优先使用 bundle/signing identifier；显示名和模糊搜索词只作为用户输入与诊断信息。任意 PROCESS-NAME-WILDCARD/正则兼容放到后续高级能力，不作为首个可用版本的稳定身份。
 
-Route Bypass 对启用的 flow-only 规则必须整体返回能力不支持，不得只取其中 IP-CIDR 继续执行。精确 DOMAIN 若以后提供 DNS-derived Route 模式，也必须明确其共享 IP、TTL、DoH 和 CDN 限制，不能与 Flow hostname 匹配混为同一种保证。
+Route Bypass 对启用的 flow-only 规则（DOMAIN-KEYWORD/APPLICATION）必须整体返回能力不支持，不得只取其中 IP-CIDR 继续执行。精确 DOMAIN 与 DOMAIN-SUFFIX（仅 apex）的 DNS-derived Route 模式由 ADR-EX-INT-10 定义并实现（离线、真机未验证）：系统 resolver 展开为 /32、有界截断、解析失败整体拒绝、sustained 定期重解析；其共享 IP、TTL 与 CDN 轮换限制写入该 ADR，不能与 Flow hostname 匹配混为同一种保证。
 
 ## 6. DNS 模式
 

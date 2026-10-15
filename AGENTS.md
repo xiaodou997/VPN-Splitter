@@ -18,7 +18,7 @@ External UI 采用侧边栏分区：概览、规则、分流会话、恢复、Fl
 
 EX-INT-01 在 Packages/ExternalCore 提供实际 macOS 只读采集、IPv4 路由形态识别和 PolicyCore DIRECT 预览。dev.sh external-run 打开独立、仅 ad-hoc 的 External 开发预览；external-build 只编译；external-test 是离线回归，无需 Go 或开发签名。原 run/test、WG/S1 源码和权限保持不变。不要把新预览说成已集成到 LocalDev 或已能应用分流。
 
-当前交付已推进至 EX-INT-03D 与 EX-FLOW-02（数据面已实现、真机未验证）：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；FLOW-01 验证 Transparent Proxy 的来源应用/hostname 元数据，FLOW-02 按 ADR-EX-FLOW-02 实现仅 TCP 的 DIRECT relay（fail-closed、有界、纯计数报告），真机验证前 provider 默认仍是无规则的 pass-through 探针，APPLICATION/DOMAIN-* 不宣称可执行。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
+当前交付已推进至 EX-INT-03D、EX-INT-10 与 EX-FLOW-02（数据面已实现、真机未验证）：03D 把旧恢复 marker 的只读审计/安全清除搬进认证 Helper/GUI；EX-INT-10 按 ADR-EX-INT-10 实现 Route Helper 域名解析（DOMAIN/DOMAIN-SUFFIX 仅 apex 经系统 resolver 展开为 /32 直连提案、解析失败整体拒绝、sustained 每 60 秒后台重解析 diff 增删自有路由），离线回归通过但真机未验证，不宣称域名分流可用；DOMAIN-KEYWORD/APPLICATION 仍整体拒绝。FLOW-01 验证 Transparent Proxy 的来源应用/hostname 元数据，FLOW-02/03 按 ADR-EX-FLOW-02/03 实现 TCP+UDP 的 DIRECT relay（fail-closed、有界、纯计数报告，DNS 目的端口 53 在拦截层排除），真机仅 LAN 目标通过、互联网 DIRECT 受第三方 VPN kill switch 限制按设计不可用，APPLICATION/DOMAIN-* 在 Flow 层不宣称可执行。canApply=false 的观察/预览不是 Helper 权限，不得直接拿它写路由。保持原 VPN 的认证、进程、默认路由与 DNS；不做 External Include、按应用分流、厂商泛化承诺或无限抢路由。未知/冲突拒绝，没有完整执行路径就明确说明。
 
 ## LocalDev 历史调序与持续安全边界
 
@@ -34,7 +34,7 @@ LocalDev 独立工程在 apps/macos/LocalDev/，仅 ad-hoc 签名、无 NE entit
 
 macOS 26.0+、arm64、Swift/SwiftUI、纯 Swift PolicyCore、Developer ID/DMG、自有代码 MIT。主场景 Include；External 首发仅经验证的 Bypass。一次一个会话，不自动叠加隧道。
 
-不提供系统级 Kill Switch、完整 IPv6、REJECT 执行、URL 级或任意进程正则兼容。APPLICATION/DOMAIN-* 只有在 Flow Bypass 真机能力验证后才可开放执行；否则仅保存和诊断。不支持的策略在应用前拒绝，不能静默略过。DNS resolver 选择不等于数据路由。
+不提供系统级 Kill Switch、完整 IPv6、REJECT 执行、URL 级或任意进程正则兼容。DOMAIN/DOMAIN-SUFFIX 经 ADR-EX-INT-10 在路由层解析执行（仅 apex、尽力语义），真机验证前不宣称可用；DOMAIN-KEYWORD/APPLICATION 只有在 Flow Bypass 真机能力验证后才可开放执行，否则仅保存和诊断。不支持的策略在应用前拒绝，不能静默略过。DNS resolver 选择不等于数据路由。
 
 ## 实现与验证
 

@@ -10,7 +10,7 @@ public enum ExternalProfileError: String, Error, Sendable {
         switch self {
         case .invalidName: return "方案名称须为 1–64 个字符，且不能包含控制字符。"
         case .invalidRules: return "规则格式无效；请检查 IP/CIDR、域名或应用名称。"
-        case .ruleNeedsFlowBackend: return "当前方案含域名/应用规则；现有 Route Bypass 不能按来源应用或动态域名安全执行。"
+        case .ruleNeedsFlowBackend: return "当前方案含域名关键字/应用规则；Route Bypass 无法按关键字或来源应用确定 IP 集合，只有 Flow Bypass 能执行。"
         case .limitExceeded: return "最多保存 16 套方案，每套最多 64 条规则。"
         case .invalidDocument: return "本地方案文件损坏或不完整；未覆盖、未自动重置。"
         case .unsupportedVersion: return "本地方案由不兼容的版本保存；未降级覆盖。"
@@ -34,6 +34,9 @@ public enum ExternalSavedRuleKind: String, Codable, CaseIterable, Sendable {
     case application = "APPLICATION"
 
     public var requiresFlowBackend: Bool { self != .ipCIDR }
+    /// Route-layer execution resolves exact domains and suffix apexes to IPv4 /32;
+    /// keywords and per-application identity have no deterministic IP set.
+    public var routeResolvable: Bool { self == .ipCIDR || self == .domain || self == .domainSuffix }
     public var displayName: String {
         switch self {
         case .ipCIDR: return "IP / CIDR"
@@ -116,6 +119,10 @@ public struct ExternalSavedRule: Codable, Equatable, Identifiable, Sendable {
         }
     }
     private static func normalizedDomain(_ text: String, suffix: Bool) -> String? {
+        return normalizedDomainValue(text, suffix: suffix)
+    }
+    /// Shared strict hostname normalization: lowercase, no "*." on exact, labels per RFC 1034.
+    public static func normalizedDomainValue(_ text: String, suffix: Bool) -> String? {
         var value = text.lowercased()
         if suffix && value.hasPrefix("*.") { value.removeFirst(2) }
         while value.hasSuffix(".") { value.removeLast() }
@@ -151,12 +158,25 @@ public struct ExternalSavedProfile: Codable, Equatable, Identifiable, Sendable {
     }
     public var enabledRules: [ExternalSavedRule] { rules.filter(\.enabled) }
     public var hasEnabledFlowRules: Bool { enabledRules.contains { $0.kind.requiresFlowBackend } }
+    /// DOMAIN-KEYWORD/APPLICATION stay Flow-only; DOMAIN/DOMAIN-SUFFIX resolve at prepare.
+    public var hasEnabledRouteUnsupportedRules: Bool { enabledRules.contains { !$0.kind.routeResolvable } }
+    /// Read-only GUI preview input: only literal IPv4 rules; domain rows resolve in the Helper.
+    public func routePreviewRulesText() -> String {
+        enabledRules.filter { $0.kind == .ipCIDR }.map(\.target).joined(separator: "\n")
+    }
     public var enabledRulesText: String { (try? routeExecutionRulesText()) ?? "" }
+    /// Helper execution text: CIDR lines plus DOMAIN,/DOMAIN-SUFFIX, lines the Helper resolves.
     public func routeExecutionRulesText() throws -> String {
         let enabled = enabledRules
         guard !enabled.isEmpty else { return "" }
-        guard enabled.allSatisfy({ $0.kind == .ipCIDR }) else { throw ExternalProfileError.ruleNeedsFlowBackend }
-        return enabled.map(\.target).joined(separator: "\n")
+        guard enabled.allSatisfy({ $0.kind.routeResolvable }) else { throw ExternalProfileError.ruleNeedsFlowBackend }
+        return enabled.map { rule in
+            switch rule.kind {
+            case .domain: return "DOMAIN,\(rule.target)"
+            case .domainSuffix: return "DOMAIN-SUFFIX,\(rule.target)"
+            default: return rule.target
+            }
+        }.joined(separator: "\n")
     }
     public mutating func appendBatch(_ text: String) throws {
         guard text.utf8.count <= 16_384 else { throw ExternalProfileError.limitExceeded }

@@ -104,6 +104,54 @@ final class ExternalControlTests: XCTestCase, @unchecked Sendable {
             XCTAssertThrowsError(try ExternalControlRequest.decode(sequencedRequest.encoded()))
         }
     }
+    func testWirePrepareAcceptsResolvableDomainLinesOnly() throws {
+        for rules in ["DOMAIN,example.com", "DOMAIN-SUFFIX,example.com\n198.51.100.7/32",
+                      "DOMAIN,a-b.c-d.example.com", "198.51.100.7/32"] {
+            var request = ExternalControlRequest(.prepare, instance: UUID(), profile: UUID(), revision: UUID(), rules: rules)
+            request.sequence = 1
+            XCTAssertNoThrow(try ExternalControlRequest.decode(request.encoded()))
+        }
+        // Flow-only kinds, malformed hostnames and non-canonical lines never pass the envelope.
+        for rules in ["DOMAIN-KEYWORD,google", "APPLICATION,Telegram", "APP,Telegram", "domain,example.com",
+                      "DOMAIN,", "DOMAIN-SUFFIX,", "DOMAIN,UPPER.com", "DOMAIN,bad_under.com",
+                      "DOMAIN-SUFFIX,*.example.com", "DOMAIN,example.com\n", "DOMAIN,exam ple.com"] {
+            var request = ExternalControlRequest(.prepare, instance: UUID(), profile: UUID(), revision: UUID(), rules: rules)
+            request.sequence = 1
+            XCTAssertThrowsError(try ExternalControlRequest.decode(request.encoded()))
+        }
+    }
+    func testReplyProposalSourceDomainIsOptionalAndBounded() throws {
+        var request = ExternalControlRequest(.status, instance: UUID()); request.sequence = 1
+        let reply = ExternalControlReply(requestID: request.id, instance: request.instance!, canApply: true,
+                                         result: .init(.prepared))
+        var valued = reply
+        valued.proposals = [.init(destination: "203.0.113.9/32", gateway: "192.0.2.1", interface: "en7",
+                                  disposition: "wouldAdd", sourceDomain: "example.com")]
+        let decoded = try ExternalControlReply.decode(valued.encoded(), request: request)
+        XCTAssertEqual(decoded.proposals.first?.sourceDomain, "example.com")
+        // A peer built before this field existed simply omits the key; schema stays 2.
+        var object = try XCTUnwrap(try JSONSerialization.jsonObject(with: valued.encoded()) as? [String: Any])
+        var proposals = try XCTUnwrap(object["proposals"] as? [[String: Any]])
+        proposals[0].removeValue(forKey: "sourceDomain")
+        object["proposals"] = proposals
+        let legacy = try ExternalControlReply.decode(JSONSerialization.data(withJSONObject: object), request: request)
+        XCTAssertNil(legacy.proposals.first?.sourceDomain)
+        var oversized = reply
+        oversized.proposals = [.init(destination: "203.0.113.9/32", gateway: "192.0.2.1", interface: "en7",
+                                     disposition: "wouldAdd", sourceDomain: String(repeating: "a", count: 281))]
+        XCTAssertThrowsError(try ExternalControlReply.decode(oversized.encoded(), request: request))
+    }
+    func testPrepareWithDomainRulesReachesTheLeaseFactory() async {
+        let world = World(); let host = service(world)
+        let peer = ExternalControlPeer(uid: 501)
+        _ = await host.handle(sequenced(.init(.hello), peer), peer: peer)
+        let request = sequenced(ExternalControlRequest(.prepare, instance: host.instance,
+            profile: UUID(), revision: UUID(), rules: "DOMAIN,example.com\n198.51.100.7/32"), peer)
+        let reply = await host.handle(request, peer: peer)
+        XCTAssertEqual(world.count("prepare"), 1)
+        XCTAssertEqual(reply.result.state, .prepared)
+        XCTAssertEqual(reply.proposals.first?.sourceDomain, nil) // The double has no resolver.
+    }
     func testTeamRequirementIsExactAndNotCallerData() throws {
         let req = try ExternalControlIdentity.requirement(team: "ABCDE12345", helper: false)
         XCTAssertTrue(req.contains(ExternalControlIdentity.app)); XCTAssertTrue(req.contains("anchor apple generic"))

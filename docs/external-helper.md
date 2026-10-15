@@ -70,7 +70,7 @@ Helper 启动发现旧 active marker 时继续锁定新会话。控制 App 可�
 /bin/bash dev.sh external-helper-build --identity '<本机 Developer ID 身份>' --team-id '<本机 Team ID>' --route-trial --sustained
 ```
 
-持续模式保持 App 运行和有效心跳，不会每 60 秒结束；停止、App 失联、睡眠、观察失败或网络变化仍请求撤销，不自动重连。关窗口与退出 App 不同，退出前应停止。IP 规则仍限单次最多 8 项、/24–/32、总共 2048 地址；APP/域名仅保存，不能执行。原默认路由和 DNS 不由本工具改写。若提示恢复，使用恢复页核查，不反复开始。完整发行稳定性未完成，先按受控试用收集反馈。
+持续模式保持 App 运行和有效心跳，不会每 60 秒结束；停止、App 失联、睡眠、观察失败或网络变化仍请求撤销，不自动重连。关窗口与退出 App 不同，退出前应停止。规则仍限单次最多 8 项、/24–/32、总共 2048 地址。EX-INT-10（ADR-EX-INT-10，离线实现、真机未验证）：DOMAIN/DOMAIN-SUFFIX 规则在 prepare 时由 Helper 经系统 resolver 解析为 /32 直连提案并标注来源域名（suffix 仅 apex），解析失败、零可用记录或落入 fake-ip/保留段整体拒绝；sustained 会话每 60 秒在后台重解析并按 diff 增删自有路由，失败保持现状。DOMAIN-KEYWORD/APPLICATION 仍仅保存、整体拒绝。原默认路由和 DNS 不由本工具改写。若提示恢复，使用恢复页核查，不反复开始。完整发行稳定性未完成，先按受控试用收集反馈。
 
 ## 协议版本与服务名
 

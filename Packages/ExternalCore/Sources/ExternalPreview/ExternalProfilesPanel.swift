@@ -70,9 +70,11 @@ struct ExternalProfilesPanel: View {
                             .disabled(!profiles.editor.workspace.profiles.contains { $0.id == draft.id } || profiles.editor.mustReload)
                         Button("保存方案") { profiles.save() }.disabled(!profiles.canSave)
                     }
-                    Text(profiles.hasEnabledFlowRules
-                        ? "当前含域名/应用规则：已保存但 Route Bypass 整体禁止应用，不会静默忽略。后续 Flow Bypass 将按 hostname / 稳定 App 身份执行。"
-                        : "当前全部启用规则可由 IPv4 Route Bypass 继续预检；网关、冲突和 Helper 授权仍须另查。")
+                    Text(profiles.hasRouteUnsupportedRules
+                        ? "当前含域名关键字/应用规则：已保存但 Route Bypass 整体禁止应用，不会静默忽略。DOMAIN/DOMAIN-SUFFIX 可在 Route 层解析执行；关键字/应用等待 Flow Bypass。"
+                        : (profiles.hasEnabledFlowRules
+                            ? "域名规则将在 Helper 预检时经系统 DNS 解析为 IPv4 /32 直连提案并标注来源；DOMAIN-SUFFIX 仅解析 apex 域名本身。解析失败会整体拒绝，不静默跳过。"
+                            : "当前全部启用规则可由 IPv4 Route Bypass 继续预检；网关、冲突和 Helper 授权仍须另查。"))
                         .font(.footnote)
                 } else {
                     Text("新建方案后加入直连目标；再次打开应用会载入上次保存的选择。")

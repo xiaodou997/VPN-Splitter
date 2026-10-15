@@ -111,12 +111,31 @@ final class ExternalProfileTests: XCTestCase {
                                                    applicationIdentifier: "bad id").validated())
     }
 
+    func testDomainRulesEmitResolvableExecutionTextAndStaticPreview() throws {
+        var value = ExternalSavedProfile(name: "domains")
+        try value.appendBatch("DOMAIN,WWW.Example.COM.\nDOMAIN-SUFFIX,*.Example.COM\n192.0.2.9")
+        XCTAssertTrue(value.hasEnabledFlowRules)          // Informational: Flow-typed rules exist.
+        XCTAssertFalse(value.hasEnabledRouteUnsupportedRules)
+        XCTAssertEqual(try value.routeExecutionRulesText(),
+                       "DOMAIN,www.example.com\nDOMAIN-SUFFIX,example.com\n192.0.2.9/32")
+        XCTAssertEqual(value.routePreviewRulesText(), "192.0.2.9/32") // GUI preview stays resolution-free.
+        var disabled = value; disabled.rules[0].enabled = false
+        XCTAssertEqual(try disabled.routeExecutionRulesText(), "DOMAIN-SUFFIX,example.com\n192.0.2.9/32")
+        var keyword = ExternalSavedProfile(name: "keyword")
+        try keyword.appendBatch("DOMAIN-KEYWORD,github")
+        XCTAssertTrue(keyword.hasEnabledRouteUnsupportedRules)
+        XCTAssertThrowsError(try keyword.routeExecutionRulesText()) {
+            XCTAssertEqual($0 as? ExternalProfileError, .ruleNeedsFlowBackend)
+        }
+    }
+
     func testTypedDomainApplicationAndLegacyMigration() throws {
         var value = ExternalSavedProfile(name: "typed")
         try value.appendBatch("DOMAIN,WWW.Example.COM.\nDOMAIN-SUFFIX,*.Example.COM\nDOMAIN-KEYWORD,GitHub\nAPP,Google Chrome\n192.0.2.9")
         XCTAssertEqual(value.rules.map(\.kind), [.domain, .domainSuffix, .domainKeyword, .application, .ipCIDR])
         XCTAssertEqual(value.rules.map(\.target), ["www.example.com", "example.com", "github", "Google Chrome", "192.0.2.9/32"])
         XCTAssertTrue(value.hasEnabledFlowRules)
+        XCTAssertTrue(value.hasEnabledRouteUnsupportedRules) // DOMAIN-KEYWORD + APPLICATION stay Flow-only.
         XCTAssertThrowsError(try value.routeExecutionRulesText()) {
             XCTAssertEqual($0 as? ExternalProfileError, .ruleNeedsFlowBackend)
         }

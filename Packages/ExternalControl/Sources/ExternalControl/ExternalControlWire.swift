@@ -6,7 +6,7 @@ public enum ExternalControlError: String, Error, Sendable {
     case staleSelection, trialDisabled, recoveryRequired, disconnected, timeout
     case serviceNotEnabled, channelMissing, requestInFlight, proxyUnavailable
     case xpcCodeSigningRejected, xpcInterrupted, xpcInvalid, xpcReplyInvalid, xpcTransport
-    case protocolMismatch
+    case protocolMismatch, domainResolutionFailed
 }
 public enum ExternalControlAction: String, Codable, Sendable { case hello, prepare, apply, status, stop, recoveryAudit, recoveryClear, quiesce }
 public enum ExternalControlState: String, Codable, Sendable {
@@ -47,10 +47,11 @@ public struct ExternalControlRequest: Codable, Sendable {
             guard value.instance != nil, value.profile != nil, value.revision != nil, value.ticket == nil,
                   let rules = value.rules, !rules.isEmpty, rules.utf8.count <= 4096 else { throw ExternalControlError.invalidRequest }
             let lines = rules.split(separator: "\n", omittingEmptySubsequences: false)
-            guard (1...64).contains(lines.count), lines.allSatisfy({ line in
-                (7...18).contains(line.utf8.count) && line.utf8.allSatisfy { (48...57).contains($0) || $0 == 46 || $0 == 47 }
-            }) else { throw ExternalControlError.invalidRequest }
-            // Canonical CIDR semantics and the actual topology are checked by the native planner.
+            guard (1...64).contains(lines.count), lines.allSatisfy(validRuleLine) else {
+                throw ExternalControlError.invalidRequest
+            }
+            // Canonical CIDR semantics, hostname validation and the actual topology are
+            // checked by the native planner/resolver; DOMAIN-KEYWORD/APPLICATION never parse.
         case .apply:
             guard value.instance != nil, value.profile != nil, value.revision != nil,
                   value.rules == nil, value.ticket != nil else { throw ExternalControlError.invalidRequest }
@@ -69,14 +70,31 @@ public struct ExternalControlRequest: Codable, Sendable {
         return (id, schema)
     }
     public func encoded() throws -> Data { try JSONEncoder().encode(self) }
+    /// CIDR line or a resolvable DOMAIN,/DOMAIN-SUFFIX, line. Strict character
+    /// classes only; resolution and semantic checks stay on the Helper side.
+    private static func validRuleLine(_ line: Substring) -> Bool {
+        if line.hasPrefix("DOMAIN-SUFFIX,") { return validHostname(line.dropFirst("DOMAIN-SUFFIX,".count)) }
+        if line.hasPrefix("DOMAIN,") { return validHostname(line.dropFirst("DOMAIN,".count)) }
+        return (7...18).contains(line.utf8.count) &&
+            line.utf8.allSatisfy { (48...57).contains($0) || $0 == 46 || $0 == 47 }
+    }
+    private static func validHostname(_ value: Substring) -> Bool {
+        (1...253).contains(value.utf8.count) &&
+            value.utf8.allSatisfy { (48...57).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 46 }
+    }
 }
 public struct ExternalControlProposal: Codable, Equatable, Sendable {
     public let destination: String
     public let gateway: String
     public let interface: String
     public let disposition: String
-    public init(destination: String, gateway: String, interface: String, disposition: String) {
-        self.destination = destination; self.gateway = gateway; self.interface = interface; self.disposition = disposition
+    /// Optional schema-2-compatible addition: origin domain for resolver-derived /32
+    /// proposals (suffix rules annotated apex-only). Absent for literal CIDR rules.
+    public let sourceDomain: String?
+    public init(destination: String, gateway: String, interface: String, disposition: String,
+                sourceDomain: String? = nil) {
+        self.destination = destination; self.gateway = gateway; self.interface = interface
+        self.disposition = disposition; self.sourceDomain = sourceDomain
     }
 }
 public struct ExternalControlResult: Codable, Sendable {
@@ -116,7 +134,8 @@ public struct ExternalControlReply: Codable, Sendable {
               value.result.recoveryPresent <= value.result.recoveryCandidates,
               value.result.code.utf8.count <= 64, value.result.diagnostic.utf8.count <= 1024,
               value.proposals.allSatisfy({ $0.destination.utf8.count <= 18 && $0.gateway.utf8.count <= 15 &&
-                  $0.interface.utf8.count <= 32 && $0.disposition.utf8.count <= 40 }) else {
+                  $0.interface.utf8.count <= 32 && $0.disposition.utf8.count <= 40 &&
+                  ($0.sourceDomain?.utf8.count ?? 0) <= 280 }) else {
             throw ExternalControlError.invalidResponse
         }
         return value

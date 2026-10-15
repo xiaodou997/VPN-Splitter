@@ -235,7 +235,7 @@ struct ExternalHelperSessionPanel: View {
                               profiles.hasUnsavedChanges || profiles.editor.mustReload || !profiles.canRouteExecute)
                 if let response = helper.response {
                     ForEach(Array(response.proposals.enumerated()), id: \.offset) { _, route in
-                        Text("\(route.destination) → \(route.gateway) / \(route.interface) · \(route.disposition)")
+                        Text("\(route.destination)\(route.sourceDomain.map { " (\($0))" } ?? "") → \(route.gateway) / \(route.interface) · \(route.disposition)")
                             .font(.system(.body, design: .monospaced))
                     }
                     Text("状态：\(response.result.state.rawValue) · \(response.result.diagnostic)")
@@ -244,9 +244,13 @@ struct ExternalHelperSessionPanel: View {
                         Text("当前控制版为只读接线；受控写入需要单独签名的 route-trial 构建。").font(.caption)
                     }
                 }
-                if profiles.hasEnabledFlowRules {
-                    Label("此方案含域名/应用规则，等待 Flow Bypass；当前 Route Helper 不会忽略后继续执行。",
+                if profiles.hasRouteUnsupportedRules {
+                    Label("此方案含域名关键字/应用规则，Route Helper 会整体拒绝；只有 Flow Bypass 能按关键字或来源应用执行。",
                           systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                } else if profiles.hasEnabledFlowRules {
+                    Label("域名规则将在 Helper 预检时经系统 DNS 解析为 /32 直连提案（每域名最多 8 条）；DOMAIN-SUFFIX 仅解析 apex 域名本身，解析失败则整体拒绝。",
+                          systemImage: "info.circle")
                         .font(.caption)
                 }
                 Toggle("我已核对提案，允许本次有限 IPv4 直连例外", isOn: $helper.confirmed)

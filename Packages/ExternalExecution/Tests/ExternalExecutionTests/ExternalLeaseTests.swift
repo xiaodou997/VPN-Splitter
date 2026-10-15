@@ -76,6 +76,7 @@ private final class Driver: ExternalRouteOperating {
 private final class Journal: ExternalLeaseJournaling {
     var began = 0; var finished = 0; var events: [String] = []
     var beginFails = false; var recordFailsAt: Int?; var finishFails = false
+    var amends: [[ExternalLeaseRoute]] = []; var amendFails = false
     func begin(session: UUID, routes: [ExternalLeaseRoute]) throws {
         began += 1
         if beginFails { throw ExternalLeaseFailure.journalFailed }
@@ -83,6 +84,10 @@ private final class Journal: ExternalLeaseJournaling {
     func record(_ event: String, index: Int) throws {
         events.append("\(index):\(event)")
         if recordFailsAt == events.count { throw ExternalLeaseFailure.journalFailed }
+    }
+    func amend(routes: [ExternalLeaseRoute]) throws {
+        if amendFails { throw ExternalLeaseFailure.journalFailed }
+        amends.append(routes)
     }
     func finish() throws {
         finished += 1
@@ -357,6 +362,86 @@ final class ExternalLeaseTests: XCTestCase {
     }
 }
 
+final class ExternalLeaseRefreshTests: XCTestCase {
+    private func route(_ cidr: String) throws -> ExternalLeaseRoute {
+        try ExternalLeaseRoute(destination: IPv4CIDR(cidr), gateway: IPv4Address("192.0.2.1"), interface: "en7")
+    }
+    private func sustained(_ rules: String = "198.51.100.4", _ refreshable: Set<String> = ["198.51.100.4/32"],
+                           _ driver: Driver, _ journal: Journal, _ clock: Clock = Clock()) throws -> ExternalLeaseTransaction {
+        let plan = try ExternalLeasePlan.prepare(rules: rules, observation: snapshot(), uptime: 101, clock: 10,
+                                                 controlledLifetime: true)
+        return ExternalLeaseTransaction(plan: plan, driver: driver, journal: journal,
+                                        now: { clock.now }, uptime: { 101 }, cancelled: { clock.cancelled },
+                                        refreshableDestinations: Set(refreshable.map { try! IPv4CIDR($0) }))
+    }
+    func testSustainedRefreshAddsAndRemovesOnlyOwnedRefreshableRoutes() throws {
+        let d = try Driver(), j = Journal()
+        let t = try sustained("198.51.100.4", ["198.51.100.4/32"], d, j)
+        t.start(consent: true)
+        XCTAssertEqual(t.state, .active)
+        t.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [try IPv4CIDR("198.51.100.4/32")])
+        XCTAssertEqual(t.state, .active); XCTAssertNil(t.failure)
+        XCTAssertEqual(t.ownedCount, 1)
+        XCTAssertEqual(d.removes, [1]); XCTAssertEqual(d.adds.count, 2)
+        XCTAssertEqual(j.amends, [[try route("203.0.113.9/32")]])
+        XCTAssertEqual(j.events.suffix(5), ["0:willRemove", "0:removeReadback", "0:willAdd", "0:addAcknowledged", "0:addReadback"])
+        t.poll()
+        XCTAssertEqual(t.state, .active) // Snapshot comparison accounts for the refreshed owned row.
+        t.stop()
+        XCTAssertEqual(t.state, .closed); XCTAssertEqual(d.removes, [1, 2]); XCTAssertEqual(j.finished, 1)
+    }
+    func testRefreshNeverRemovesStaticRuleDestinations() throws {
+        let d = try Driver(), j = Journal()
+        let t = try sustained("198.51.100.4", [], d, j) // Static rule: not refreshable.
+        t.start(consent: true)
+        t.refreshRoutes(add: [], remove: [try IPv4CIDR("198.51.100.4/32")])
+        XCTAssertEqual(t.failure, .invalidState)
+        XCTAssertEqual(t.state, .closed) // Fail-closed: the session ends rather than touching it.
+        XCTAssertEqual(d.removes, [1])   // Only stop()'s owned cleanup ran.
+        XCTAssertTrue(j.amends.isEmpty)
+    }
+    func testRefreshAddRejectionTerminatesAndRollsBack() throws {
+        let d = try Driver(), j = Journal(); d.rejectAt = 2
+        let t = try sustained("198.51.100.4", ["198.51.100.4/32"], d, j)
+        t.start(consent: true)
+        t.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [])
+        XCTAssertEqual(t.failure, .routeRejected); XCTAssertEqual(t.state, .closed)
+        XCTAssertEqual(t.ownedCount, 0); XCTAssertEqual(d.removes, [1])
+        XCTAssertEqual(j.amends.count, 1); XCTAssertEqual(j.finished, 1)
+    }
+    func testRefreshAmendFailureKeepsMarkerAndRequiresRecovery() throws {
+        let d = try Driver(), j = Journal(); j.amendFails = true
+        let t = try sustained("198.51.100.4", ["198.51.100.4/32"], d, j)
+        t.start(consent: true)
+        t.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [])
+        XCTAssertEqual(t.failure, .journalFailed); XCTAssertEqual(t.state, .recoveryRequired)
+        XCTAssertEqual(d.removes, [1]); XCTAssertEqual(j.finished, 0)
+    }
+    func testLimitedTrialAndInactiveSessionsNeverRefresh() throws {
+        let d = try Driver(), j = Journal()
+        let trial = session(try plan(), d, j) // controlledLifetime = false
+        trial.start(consent: true)
+        trial.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [])
+        XCTAssertEqual(d.adds.count, 1); XCTAssertTrue(j.amends.isEmpty); XCTAssertEqual(trial.state, .active)
+        trial.stop()
+        let idle = try sustained("198.51.100.4", ["198.51.100.4/32"], try Driver(), Journal())
+        idle.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [])
+        XCTAssertEqual(idle.state, .idle)
+    }
+    func testRefreshBeyondTheFixedExecutionBudgetIsRejectedBeforeWrites() throws {
+        let d = try Driver(), j = Journal()
+        let t = try sustained("198.51.100.4", ["198.51.100.4/32"], d, j)
+        t.start(consent: true)
+        let fitting = try (1...7).map { try route("203.0.113.\($0)/32") }
+        t.refreshRoutes(add: fitting, remove: [])
+        XCTAssertEqual(t.state, .active); XCTAssertEqual(t.ownedCount, 8)
+        XCTAssertEqual(j.amends.last?.count, 8)
+        t.refreshRoutes(add: [try route("203.0.113.9/32")], remove: [])
+        XCTAssertEqual(t.failure, .limit); XCTAssertEqual(t.state, .closed) // Intended set > 8: no ADD happened.
+        XCTAssertEqual(d.adds.count, 8)
+    }
+}
+
 final class ExternalLeaseJournalTests: XCTestCase {
     private func temporary(_ body: (URL) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("external-journal-" + UUID().uuidString)
@@ -372,6 +457,46 @@ final class ExternalLeaseJournalTests: XCTestCase {
             XCTAssertTrue(FileManager.default.fileExists(atPath: file.path)); try j.finish()
             XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
             XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("lease.lock").path))
+        }
+    }
+    func testAmendReplacesMarkerAtomicallyAndStaysWritable() throws {
+        try temporary { dir in
+            let first = try plan().additions
+            let second = try plan("203.0.113.4\n203.0.113.100").additions
+            XCTAssertEqual(second.count, 2)
+            do {
+                let j = try ExternalLeaseFileJournal(directory: dir, owner: getuid())
+                try j.begin(session: UUID(), routes: first)
+                XCTAssertThrowsError(try j.amend(routes: []))
+                XCTAssertThrowsError(try j.amend(routes: first + second + first + second + first + second)) // 9 > 8
+                try j.amend(routes: second)
+                try j.record("willAdd", index: 1) // Indices refer to the amended route list.
+                try j.finish()
+                XCTAssertFalse(FileManager.default.fileExists(atPath: dir.appendingPathComponent("active").path))
+            }
+        }
+    }
+    func testAmendedMarkerIsWhatRecoveryAudits() throws {
+        try temporary { dir in
+            let first = try plan().additions
+            let second = try plan("203.0.113.4").additions
+            do {
+                let j = try ExternalLeaseFileJournal(directory: dir, owner: getuid())
+                try j.begin(session: UUID(), routes: first)
+                // A stale temp from a crashed amend is owned by this directory; replaced, never adopted.
+                try Data("stale".utf8).write(to: dir.appendingPathComponent("active.amend"))
+                try j.amend(routes: second)
+            }
+            let next = try ExternalLeaseFileJournal(directory: dir, owner: getuid())
+            XCTAssertEqual(try next.auditCandidates(), second)
+            XCTAssertThrowsError(try next.clearAuditedAbsence(routes: first, observation: snapshot(), uptime: 101))
+            try next.clearAuditedAbsence(routes: second, observation: snapshot(), uptime: 101)
+        }
+    }
+    func testAmendWithoutSessionIsRejected() throws {
+        try temporary { dir in
+            let j = try ExternalLeaseFileJournal(directory: dir, owner: getuid())
+            XCTAssertThrowsError(try j.amend(routes: plan().additions))
         }
     }
     func testAbsentMarkerAuditsAsZeroWithoutGrantingClearAuthority() throws {

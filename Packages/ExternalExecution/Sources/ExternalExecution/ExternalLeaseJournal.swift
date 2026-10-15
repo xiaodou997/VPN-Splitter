@@ -21,6 +21,7 @@ public final class ExternalLeaseFileJournal: ExternalLeaseJournaling {
     private let owner: uid_t
     private var activeFD: Int32 = -1
     private var count = 0
+    private var sessionID: UUID?
     private var auditedRoutes: [ExternalLeaseRoute]?
     private static let schema = "external-lease-intent-v1"
     private static let events: Set<String> = ["willAdd", "addAcknowledged", "addReadback", "willRemove", "removeReadback", "alreadyAbsent"]
@@ -62,7 +63,7 @@ public final class ExternalLeaseFileJournal: ExternalLeaseJournaling {
         guard data.count <= 8192 else { throw ExternalLeaseFailure.journalFailed }
         let fd = openat(directoryFD, "active", O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
         guard fd >= 0 else { throw ExternalLeaseFailure.recoveryRequired }
-        activeFD = fd; count = routes.count
+        activeFD = fd; count = routes.count; sessionID = session
         guard Self.regular(fd, owner: owner) else { throw ExternalLeaseFailure.journalFailed }
         // A failed/partial write leaves its marker and blocks another lease. No
         // route write occurs until both file and directory synchronization succeed.
@@ -75,6 +76,44 @@ public final class ExternalLeaseFileJournal: ExternalLeaseJournaling {
         }
         try writeAll(Data("\(index) \(event)\n".utf8), to: activeFD)
         guard fsync(activeFD) == 0 else { throw ExternalLeaseFailure.journalFailed }
+    }
+    /// Sustained domain refresh: atomically replace the marker route list with the
+    /// currently intended owned set, then rebind the descriptor. A crash leaves either
+    /// the old or the new complete marker; the recovery audit reads only the header.
+    public func amend(routes: [ExternalLeaseRoute]) throws {
+        guard activeFD >= 0, let session = sessionID, (1...8).contains(routes.count) else {
+            throw ExternalLeaseFailure.journalFailed
+        }
+        let data: Data
+        do {
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+            data = try encoder.encode(Header(schema: Self.schema, session: session, routes: routes)) + Data([10])
+        } catch { throw ExternalLeaseFailure.journalFailed }
+        guard data.count <= 8192 else { throw ExternalLeaseFailure.journalFailed }
+        _ = unlinkat(directoryFD, "active.amend", 0) // Stale temp from a crashed amend is ours.
+        let fd = openat(directoryFD, "active.amend", O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { throw ExternalLeaseFailure.journalFailed }
+        do {
+            guard Self.regular(fd, owner: owner) else { throw ExternalLeaseFailure.journalFailed }
+            try writeAll(data, to: fd)
+            guard fsync(fd) == 0 else { throw ExternalLeaseFailure.journalFailed }
+        } catch {
+            close(fd); _ = unlinkat(directoryFD, "active.amend", 0)
+            throw error
+        }
+        guard renameat(directoryFD, "active.amend", directoryFD, "active") == 0 else {
+            close(fd); throw ExternalLeaseFailure.journalFailed
+        }
+        close(fd)
+        guard fsync(directoryFD) == 0 else { throw ExternalLeaseFailure.journalFailed }
+        close(activeFD); activeFD = -1
+        let reopened = openat(directoryFD, "active", O_WRONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard reopened >= 0, Self.regular(reopened, owner: owner),
+              lseek(reopened, 0, SEEK_END) >= 0 else {
+            if reopened >= 0 { close(reopened) }
+            throw ExternalLeaseFailure.journalFailed
+        }
+        activeFD = reopened; count = routes.count
     }
     public func finish() throws {
         guard activeFD >= 0, Self.regular(activeFD, owner: owner), namedFileMatchesDescriptor() else {

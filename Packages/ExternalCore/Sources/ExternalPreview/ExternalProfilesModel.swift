@@ -14,9 +14,12 @@ final class ExternalProfilesModel: ObservableObject {
     private var store: ExternalProfileStore?
     private var operation: Task<Void, Never>?
     var hasUnsavedChanges: Bool { editor.isDirty || !batchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-    var enabledRules: String { (try? editor.draft?.validated().routeExecutionRulesText()) ?? "" }
+    /// Read-only overview preview input: literal IPv4 rules only; domain rows resolve in the Helper.
+    var enabledRules: String { (try? editor.draft?.validated().routePreviewRulesText()) ?? "" }
     var hasEnabledFlowRules: Bool { (try? editor.draft?.validated().hasEnabledFlowRules) ?? false }
-    var canRouteExecute: Bool { !hasEnabledFlowRules && !enabledRules.isEmpty }
+    var hasRouteUnsupportedRules: Bool { (try? editor.draft?.validated().hasEnabledRouteUnsupportedRules) ?? false }
+    var routeExecutionRules: String { (try? editor.draft?.validated().routeExecutionRulesText()) ?? "" }
+    var canRouteExecute: Bool { !hasRouteUnsupportedRules && !routeExecutionRules.isEmpty }
     var canSave: Bool { editor.loaded && editor.draft != nil && !editor.mustReload && !busy }
 
     init(store: ExternalProfileStore? = nil) {
@@ -130,9 +133,11 @@ final class ExternalProfilesModel: ObservableObject {
         do {
             try editor.edit { try $0.appendBatch(batchText) }
             batchText = ""; changeID = UUID()
-            message = hasEnabledFlowRules
-                ? "已加入规则。域名/应用规则已保存为正式类型，但当前 Route Bypass 不会执行；等待 Flow Bypass。"
-                : "已加入编辑列表；CIDR 已规范化，尚未保存或应用。"
+            message = hasRouteUnsupportedRules
+                ? "已加入规则。域名关键字/应用规则已保存为正式类型，但 Route Bypass 不能执行；等待 Flow Bypass。"
+                : (hasEnabledFlowRules
+                    ? "已加入规则。域名规则将在 Helper 预检时经系统解析展开为 IPv4 直连路由；DOMAIN-SUFFIX 仅解析 apex 域名本身。"
+                    : "已加入编辑列表；CIDR 已规范化，尚未保存或应用。")
         } catch { report(error) }
     }
     private func mutate(_ body: (inout ExternalSavedProfile) -> Void) {

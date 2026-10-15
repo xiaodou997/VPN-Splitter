@@ -6,6 +6,7 @@ public enum ExternalError: String, Error, Sendable {
     case readFailed, changedDuringRead, malformedRoutes, limitExceeded, expired
     case physicalUnknown, physicalAmbiguous, tunnelUnknown, tunnelAmbiguous, unsupportedTopology
     case invalidRules, protectedRange, existingRouteConflict, scopedRouteConflict
+    case domainResolutionFailed
     public var message: String {
         switch self {
         case .readFailed: return "无法完整读取本机网络；未生成预览。"
@@ -22,6 +23,7 @@ public enum ExternalError: String, Error, Sendable {
         case .protectedRange: return "规则与本机地址、物理局域网、观察到的 DNS 或保留地址重叠；不会自动裁剪。"
         case .existingRouteConflict: return "规则涉及已有的同级或更具体路由；未取得覆盖或删除权，已停止预览。"
         case .scopedRouteConflict: return "规则涉及作用域路由，实际选路有歧义；未生成例外。"
+        case .domainResolutionFailed: return "域名经系统解析没有得到可用的直连 IPv4 地址（失败、零记录或落入 fake-ip/保留段）；该规则整体拒绝，未部分应用。"
         }
     }
 }

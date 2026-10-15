@@ -147,5 +147,10 @@ public enum ExternalPlanner {
     }
     private static let reserved = ["0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/3"]
     private static func isReserved(_ ip: IPv4Address) -> Bool { reserved.contains { (try? IPv4CIDR($0))?.contains(ip) == true } }
+    /// Reserved ranges plus the VPN fake-ip pool: never installable as a direct /32.
+    /// 198.18.0.0/15 answers are VPN-intercepted DNS artifacts, not routable destinations.
+    public static func isUnroutableForDirect(_ ip: IPv4Address) -> Bool {
+        isReserved(ip) || (try? IPv4CIDR("198.18.0.0/15"))?.contains(ip) == true
+    }
     private static func overlaps(_ a: IPv4CIDR, _ b: IPv4CIDR) -> Bool { a.contains(b.networkAddress) || b.contains(a.networkAddress) }
 }
