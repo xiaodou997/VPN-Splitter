@@ -1,6 +1,6 @@
 # External Flow Bypass 开发入口
 
-EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP provider、签名并公证的 App + systemextension、显式控制器以及主程序只读报告桥；FLOW-01F 已完成一次本机 pass-through 与第三方 VPN 共存验证。FLOW-02 已实现 TCP DIRECT relay 数据面（匹配规则的 TCP flow 由 provider 绑定物理接口直连复制，fail-closed），TCP 直连与暂停闭环已有真机样本（[ex-flow-02-realmachine.md](evidence/ex-flow-02-realmachine.md)、[ex-int-09-isolation-guard.md](evidence/ex-int-09-isolation-guard.md)），但**完整验收矩阵（UDP/QUIC、DNS、睡眠/切网、hostname 缺失分析）未完成，仍不得宣称可用**。
+EX-FLOW-01 的目标不是立即替换现有 Route Bypass，而是先验证 macOS Transparent Proxy 在第三方 VPN 已连接时能否稳定提供规则所需的 flow 元数据。当前已有 first-match 规则核心、TCP/UDP provider、签名并公证的 App + systemextension、显式控制器以及主程序只读报告桥；FLOW-01F 已完成一次本机 pass-through 与第三方 VPN 共存验证。FLOW-02 已实现 TCP DIRECT relay 数据面（匹配规则的 TCP flow 由 provider 绑定物理接口直连复制，fail-closed），TCP 直连与暂停闭环已有真机样本（[ex-flow-02-realmachine.md](evidence/ex-flow-02-realmachine.md)、[ex-int-09-isolation-guard.md](evidence/ex-int-09-isolation-guard.md)）；FLOW-03 已实现 UDP DIRECT relay 数据面（endpoint 键控有界 relay，仅应用/域名规则接管 UDP，离线测试通过、真机未验证）。**完整验收矩阵（UDP/QUIC 真机出口对照、DNS、睡眠/切网、hostname 缺失分析）未完成，仍不得宣称可用**。
 
 ## 当前安全入口
 
@@ -15,13 +15,13 @@ git pull --ff-only && \
 `external-flow-test` 运行 ExternalFlowCore Debug/Release 与合同测试，不激活 Network Extension。`external-flow-build` 现在生成隔离 Xcode 工程并构建 unsigned 的 Flow Probe App + `.systemextension`；不会签名、安装、注册配置、打开 App 或启动 provider。成功摘要明确包含：
 
 ```text
-schema=external-flow-build-v4
+schema=external-flow-build-v5
 compile_link=PASS
 execution=NOT_RUN
 network_settings=NOT_APPLIED
 extension_activation=NOT_REQUESTED
 signing=UNSIGNED
-flow_copying=TCP_ONLY_TRIAL
+flow_copying=TCP_UDP_TRIAL
 ```
 
 ## FLOW-01 provider 行为
@@ -34,7 +34,7 @@ flow_copying=TCP_ONLY_TRIAL
 - 是否出现 `remoteHostname`；
 - TCP remote endpoint 可见性。
 
-`handleNewFlow` 的行为取决于是否装载了 DIRECT 规则：无规则（或规则无效）时始终返回 `false`，即纯 pass-through 探针；有规则时仅匹配 DIRECT 的 TCP flow 进入 relay，其余仍返回 `false`。返回 `false` 表示该 flow 继续由系统连接最终目的地；纯探针模式不打开 `NWConnection`、不读取/写入 flow 字节、不宣称 DIRECT。
+`handleNewFlow` 的行为取决于是否装载了 DIRECT 规则：无规则（或规则无效）时始终返回 `false`，即纯 pass-through 探针；有规则时仅匹配 DIRECT 的 TCP/UDP flow 进入 relay，其余仍返回 `false`。返回 `false` 表示该 flow 继续由系统连接最终目的地；纯探针模式不打开 `NWConnection`、不读取/写入 flow 字节、不宣称 DIRECT。
 
 包含 App/域名规则的真正执行仍需受控样本验证。FLOW-01F 已确认 Transparent Proxy 与原第三方 VPN 共存、来源 App signing identifier 在本次累计样本中可见；hostname 在约 38% 的累计样本中可见。必须先分析缺失场景和无法观察时的降级行为，不能把 Probe 观察直接当作 DIRECT 执行能力。
 
@@ -46,9 +46,21 @@ flow_copying=TCP_ONLY_TRIAL
 - Provider 在 `startProxy` 解码并编译规则；无效规则集整体拒绝并回退纯探针（`rulesRejected` 计数）。
 - `NWPathMonitor` 维护当前物理接口（wifi/wiredEthernet 恰好一个）；不唯一时 DIRECT 判定一律回 `false`（`relayRefusedInterface` 计数）。
 - 匹配 DIRECT 的 TCP flow：打开 flow 后经 `NWConnection` 绑定 `requiredInterface` 物理接口连接原目的，双向复制（并发上限 64、单块 64KB、空闲 75s）。打开/复制失败、超限、超时一律关闭该 flow 并计数，不回退到 VPN 路径。
-- 未匹配 flow、UDP、无规则时维持 pass-through。
+- 未匹配 flow 与无规则时维持 pass-through（UDP 接管规则见 FLOW-03）。
 - 报告新增纯计数：`rulesLoaded`、`relayStarted/Active/Completed/Failed/Cancelled`、`relayRefusedInterface/Limit`；仍不含 hostname、App ID、IP、端口或报文。
 - 循环避免依赖「provider 自建连接不被自身透明代理回捕 + requiredInterface 绑定」双保险，属真机必验项。
+
+## FLOW-03：UDP DIRECT relay 数据面（已实现离线，真机未验证）
+
+按 ADR-EX-FLOW-03 实现，与 TCP 共用 gate、pause 语义与同一并发注册表（合计上限 64）：
+
+- 拦截面增加一条 outbound UDP 规则；未匹配的 UDP flow 与 TCP 一样返回 `false` 交还系统/VPN，不计 relay。
+- UDP flow 在 `handleNewFlow` 时没有远端 IP，descriptor 的 destination 恒为 nil：**只有 APPLICATION/DOMAIN 类规则能接管 UDP**，仅 IP-CIDR 命中的 UDP flow 继续走原 VPN（有意的非对称，不接管后再后悔）。
+- 接管后打开 flow，`readDatagrams` 按远端 endpoint 分组，每 endpoint 一条绑定物理接口的 `NWConnection`（UDP）；响应经 `writeDatagrams` 写回并保留来源 endpoint。单 flow endpoint 上限 8、单 datagram 上限 65535 字节，超限关闭 flow 并计入 `relayUDPFailed`。
+- UDP 无 EOF：75 秒空闲（复用 relay `idleTimeout`）为正常结束，计 `relayUDPCompleted`；错误/取消仍 fail-closed。
+- 报告只新增纯计数：`relayUDPStarted/Active/Completed/Failed/Cancelled/RefusedLimit`；不记录 endpoint、域名、App ID 或 payload。
+- DNS 不改路径：不匹配规则的 UDP/53 自然走原 VPN。
+- 真机出口对照（STUN 绑定回包读出口 IP）通过前不宣称 UDP 分流可用。
 
 ## 规则核心
 
@@ -156,17 +168,17 @@ Flow Probe App 另有两个显式控制面（均无自动启动）：
 
 通过只表示“本地产物签名结构已验证”。构建器仍不会复制到 `/Applications`、打开 App、提交 activation request、保存 Transparent Proxy preference 或开始 probe。Apple 还会在真正激活时重新校验 App 位置、同 Team 签名、entitlement、extension identifier、公证状态和扩展自身的 `NSSystemExtensionUsageDescription`，因此**单次构建输出**继续标为 `system_acceptance=NOT_RUN`。本机 FLOW-01F 已另外完成公证、系统批准、pass-through Provider 往返和第三方 VPN 共存验证，见 [真机证据](evidence/ex-flow-01f-native-activation-attempt.md)。
 
-签名成功摘要升级为 `external-flow-build-v4`，并区分：
+签名成功摘要升级为 `external-flow-build-v5`，并区分：
 
 ```text
 signing=LOCAL_DEVELOPER_ID_VERIFIED
 system_acceptance=NOT_RUN
 provider_roundtrip=NOT_RUN
-flow_copying=TCP_ONLY_TRIAL
+flow_copying=TCP_UDP_TRIAL
 ```
 
 FLOW-01E 同时把 provider message 结果细分为 `pass / not_connected / unsupported_session / no_response / send_failed / invalid_response`。只有 `pass` 允许携带 provider report，主程序 Flow 页面直接显示该状态。
 
 ## 下一阶段
 
-FLOW-02 真机验证：签名构建 → /Applications → 系统激活 → 导出规则 → 受控样本（单条 DOMAIN 规则 + curl 对照出口 IP；单条 APPLICATION 规则）→ 验证出口为物理接口、relay 计数、VPN 共存、循环检查（provider 自建连接不被回捕）、停止后无残留。随后单独验证 UDP/QUIC、DNS、睡眠/切网、VPN 重连。任何 requiredInterface/来源身份/hostname 能力无法稳定验证，都必须保留为不可用，而不是退化成全局 IP 路由。
+FLOW-02/03 真机验证：签名构建 → /Applications → 系统激活 → 导出规则 → 受控样本（单条 DOMAIN 规则 + curl 对照 TCP 出口 IP、STUN 绑定回包对照 UDP 出口 IP；单条 APPLICATION 规则）→ 验证出口为物理接口、TCP/UDP relay 计数、VPN 共存、循环检查（provider 自建连接不被回捕）、停止后无残留。随后单独验证 DNS、睡眠/切网、VPN 重连与 IP-CIDR 不接管 UDP 的非对称表现。任何 requiredInterface/来源身份/hostname 能力无法稳定验证，都必须保留为不可用，而不是退化成全局 IP 路由。

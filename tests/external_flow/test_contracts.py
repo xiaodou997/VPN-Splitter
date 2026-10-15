@@ -23,20 +23,34 @@ class ExternalFlowContracts(unittest.TestCase):
                       'remoteHostname', 'return false', 'probe-report-v1']:
             self.assertIn(token, source)
 
-    def test_flow02_tcp_relay_is_bounded_and_fail_closed(self):
+    def test_flow02_flow03_relay_is_bounded_and_fail_closed(self):
         provider = self.provider_sources()
         core = (PACKAGE / 'Sources/ExternalFlowCore/ExternalFlowRelayCore.swift').read_text()
+        udp_core = (PACKAGE / 'Sources/ExternalFlowCore/ExternalFlowUDPRelayCore.swift').read_text()
         wire = (ROOT / 'Packages/ExternalFlowWire/Sources/ExternalFlowWire/ExternalFlowRulesWire.swift').read_text()
-        # The TCP-only DIRECT data plane exists and binds the physical interface.
+        # The DIRECT data plane exists and binds the physical interface.
         for token in ['NWConnection(', '.open(withLocalFlowEndpoint:', 'requiredInterface',
                       'ExternalFlowRelay(', 'NWPathMonitor']:
             self.assertIn(token, provider)
-        # Still TCP-only: no UDP flow handler, no UDP intercept rule.
-        self.assertNotIn('handleNewUDPFlow', provider)
-        self.assertNotIn('protocol: .UDP', provider)
+        # FLOW-03: outbound UDP is intercepted next to TCP and relayed only as
+        # an endpoint-keyed bounded NAT. UDP flows carry no remote endpoint at
+        # handleNewFlow time, so the descriptor destination is always nil and
+        # only APPLICATION/DOMAIN-class rules can take a UDP flow over; there
+        # is no take-over-then-decide mechanism.
+        for token in ['protocol: .UDP', 'NEAppProxyUDPFlow', 'readDatagrams', 'writeDatagrams',
+                      'ExternalFlowUDPRelay(', 'remoteEndpointHost: nil']:
+            self.assertIn(token, provider)
+        for token in ['maxEndpointsPerFlow', 'maxDatagramBytes', '65_535', 'idleTimeout',
+                      'ExternalFlowUDPEndpoint', 'ExternalFlowUDPDatagramSource',
+                      'ExternalFlowUDPLinkFactory', 'idleExpired']:
+            self.assertIn(token, udp_core)
+        # UDP relays share the gate and the single concurrency registry.
+        self.assertGreaterEqual(provider.count('registry.admit()'), 2)
         # No payload persistence or logging anywhere in the data plane.
         for token in ['FileHandle', 'print(', 'NSLog', 'os_log', 'write(to:', 'payload']:
             self.assertNotIn(token, provider)
+        for token in ['FileHandle', 'print(', 'NSLog', 'os_log', 'write(to:']:
+            self.assertNotIn(token, udp_core)
         # Bounds: concurrency limit, chunk size, idle timeout.
         for token in ['maxConcurrent: 64', '65_536', 'idleTimeout: 75']:
             self.assertIn(token, core)
@@ -206,7 +220,9 @@ class ExternalFlowContracts(unittest.TestCase):
                       'withSourceSigningIdentifier', 'withRemoteHostname',
                       'rulesLoaded', 'relayStarted', 'relayActive', 'relayCompleted',
                       'relayFailed', 'relayCancelled', 'relayRefusedInterface', 'relayRefusedLimit',
-                      'relayPaused', 'relayRefusedPaused']:
+                      'relayPaused', 'relayRefusedPaused',
+                      'relayUDPStarted', 'relayUDPActive', 'relayUDPCompleted',
+                      'relayUDPFailed', 'relayUDPCancelled', 'relayUDPRefusedLimit']:
             self.assertIn(token, wire)
         for forbidden in ['hostname: String', 'signingIdentifier: String', 'ipAddress', 'remotePort', 'payload']:
             self.assertNotIn(forbidden, wire)

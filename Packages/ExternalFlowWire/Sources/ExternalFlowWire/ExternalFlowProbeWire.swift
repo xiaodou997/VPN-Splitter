@@ -28,6 +28,15 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
     public var relayPaused = false
     /// DIRECT-matched flows closed because the relay was paused.
     public var relayRefusedPaused = 0
+    /// UDP relay counters (ADR-EX-FLOW-03): endpoint-keyed bounded relays for
+    /// UDP flows matched by APPLICATION/DOMAIN-class rules.
+    public var relayUDPStarted = 0
+    public var relayUDPActive = 0
+    public var relayUDPCompleted = 0
+    public var relayUDPFailed = 0
+    public var relayUDPCancelled = 0
+    /// DIRECT-matched UDP flows closed because the concurrency limit was reached.
+    public var relayUDPRefusedLimit = 0
 
     public init() {}
 
@@ -36,6 +45,8 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
         case rulesLoaded, rulesRejected, relayRefusedInterface, relayRefusedLimit
         case relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled
         case relayPaused, relayRefusedPaused
+        case relayUDPStarted, relayUDPActive, relayUDPCompleted, relayUDPFailed, relayUDPCancelled
+        case relayUDPRefusedLimit
     }
 
     public init(from decoder: any Decoder) throws {
@@ -58,6 +69,12 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
         relayCancelled = try container.decodeIfPresent(Int.self, forKey: .relayCancelled) ?? 0
         relayPaused = try container.decodeIfPresent(Bool.self, forKey: .relayPaused) ?? false
         relayRefusedPaused = try container.decodeIfPresent(Int.self, forKey: .relayRefusedPaused) ?? 0
+        relayUDPStarted = try container.decodeIfPresent(Int.self, forKey: .relayUDPStarted) ?? 0
+        relayUDPActive = try container.decodeIfPresent(Int.self, forKey: .relayUDPActive) ?? 0
+        relayUDPCompleted = try container.decodeIfPresent(Int.self, forKey: .relayUDPCompleted) ?? 0
+        relayUDPFailed = try container.decodeIfPresent(Int.self, forKey: .relayUDPFailed) ?? 0
+        relayUDPCancelled = try container.decodeIfPresent(Int.self, forKey: .relayUDPCancelled) ?? 0
+        relayUDPRefusedLimit = try container.decodeIfPresent(Int.self, forKey: .relayUDPRefusedLimit) ?? 0
     }
 
     public var appIdentityObservable: Bool { total > 0 && withSourceSigningIdentifier > 0 }
@@ -67,7 +84,9 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
         guard format == Self.schema else { throw ExternalFlowProbeWireError.unsupportedVersion }
         let values = [total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint,
                       rulesRejected, relayRefusedInterface, relayRefusedLimit, relayRefusedPaused,
-                      relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled]
+                      relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled,
+                      relayUDPStarted, relayUDPActive, relayUDPCompleted, relayUDPFailed,
+                      relayUDPCancelled, relayUDPRefusedLimit]
         guard values.allSatisfy({ $0 >= 0 && $0 <= 10_000_000 }),
               (0...ExternalFlowRulesWire.maxRules).contains(rulesLoaded),
               tcp <= total, udp <= total,
@@ -78,7 +97,10 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
               relayRefusedLimit <= total,
               relayRefusedPaused <= total,
               relayActive <= relayStarted,
-              relayCompleted + relayFailed + relayCancelled <= relayStarted else {
+              relayCompleted + relayFailed + relayCancelled <= relayStarted,
+              relayUDPRefusedLimit <= total,
+              relayUDPActive <= relayUDPStarted,
+              relayUDPCompleted + relayUDPFailed + relayUDPCancelled <= relayUDPStarted else {
             throw ExternalFlowProbeWireError.invalidReport
         }
         return self

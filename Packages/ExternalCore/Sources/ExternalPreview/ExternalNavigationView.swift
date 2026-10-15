@@ -147,7 +147,7 @@ private struct ExternalWatchdogAlertBanner: View {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
             VStack(alignment: .leading, spacing: 4) {
                 Text("VPN 状态异常：" + watchdog.eventSummary(event)).font(.headline)
-                Text("可在此停止 Helper 分流会话（只撤销本工具添加的路由例外，不阻断联网）；Flow DIRECT relay 的暂停需在 Flow Probe App 点「暂停 DIRECT relay」，暂停后匹配的 TCP 连接会被关闭而不是直连。")
+                Text("可在此停止 Helper 分流会话（只撤销本工具添加的路由例外，不阻断联网）；Flow DIRECT relay 的暂停需在 Flow Probe App 点「暂停 DIRECT relay」，暂停后匹配的 TCP/UDP flow 会被关闭而不是直连。")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -317,7 +317,7 @@ struct ExternalFlowPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 ExternalPageHeader(title: "Flow 实验",
-                    subtitle: "验证按应用和域名识别并直连 TCP flow 的能力；FLOW-02 数据面已实现，真机验证前不宣称可用。")
+                    subtitle: "验证按应用和域名识别并直连 TCP/UDP flow 的能力；FLOW-02/03 数据面已实现，真机验证前不宣称可用。")
                 GroupBox("FLOW-02 · DIRECT relay 试验通道") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -326,7 +326,7 @@ struct ExternalFlowPage: View {
                             }
                             .disabled(flowBridge.busy || profiles.editor.draft == nil)
                         }
-                        Text("导出只写本机 Flow 桥文件（仅试验通道，不含凭据或流量内容）；之后到 Flow Probe App 点「重载规则并更新探针配置」，重启探针后生效。匹配 DIRECT 的 TCP flow 将由 provider 经物理接口直连，失败即关闭，不回退到 VPN。")
+                        Text("导出只写本机 Flow 桥文件（仅试验通道，不含凭据或流量内容）；之后到 Flow Probe App 点「重载规则并更新探针配置」，重启探针后生效。匹配 DIRECT 的 TCP/UDP flow 将由 provider 经物理接口直连，失败即关闭，不回退到 VPN；UDP 只按应用/域名规则接管，仅 IP-CIDR 命中的 UDP flow 仍走原 VPN。")
                             .font(.caption).foregroundStyle(.secondary)
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -357,6 +357,13 @@ struct ExternalFlowPage: View {
                                 LabeledContent("因接口/上限拒绝") {
                                     Text("\(report.relayRefusedInterface) / \(report.relayRefusedLimit)")
                                 }
+                                LabeledContent("UDP relay 开始 / 进行中") {
+                                    Text("\(report.relayUDPStarted) / \(report.relayUDPActive)")
+                                }
+                                LabeledContent("UDP relay 完成 / 失败 / 取消") {
+                                    Text("\(report.relayUDPCompleted) / \(report.relayUDPFailed) / \(report.relayUDPCancelled)")
+                                }
+                                LabeledContent("UDP relay 因上限拒绝") { Text("\(report.relayUDPRefusedLimit)") }
                             } else {
                                 Text("当前快照没有 provider 运行报告；可能未启动、未连接，或连接对象不支持 provider message。")
                                     .font(.caption).foregroundStyle(.secondary)
@@ -371,7 +378,9 @@ struct ExternalFlowPage: View {
                 GroupBox("能力边界") {
                     VStack(alignment: .leading, spacing: 8) {
                         LabeledContent("TCP DIRECT relay") { Text("已实现（试验，真机未验证）") }
-                        LabeledContent("UDP / QUIC") { Text("后续单独验证") }
+                        LabeledContent("UDP DIRECT relay") { Text("已实现（试验，真机未验证）") }
+                        LabeledContent("UDP 接管范围") { Text("仅应用/域名规则；IP-CIDR 不接管 UDP") }
+                        LabeledContent("DNS") { Text("路径不变，未匹配 UDP/53 走原 VPN") }
                         LabeledContent("未匹配 flow") { Text("交还系统 / 原 VPN 路径") }
                         Text("主程序只读 Flow Probe App 发布的脱敏本机快照，并只在显式点击时导出规则到本机 Flow 桥；不控制其 Network Extension 配置。")
                             .font(.caption).foregroundStyle(.secondary)

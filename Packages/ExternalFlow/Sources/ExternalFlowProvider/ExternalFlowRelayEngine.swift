@@ -27,13 +27,22 @@ private struct FlowBox: @unchecked Sendable {
     let flow: NEAppProxyTCPFlow
 }
 
-/// Executes DIRECT decisions for TCP flows: opens the flow, dials the original
-/// destination bound to the current physical interface, and runs a bounded
-/// bidirectional `ExternalFlowRelay`. Decision happens synchronously in
-/// `handle`; everything after `return true` is fail-closed (the flow is closed
-/// on any error, limit or timeout, never silently handed back). While paused
-/// (ADR-EX-INT-08), DIRECT-matched flows are closed immediately instead of
-/// relayed, so a VPN outage cannot turn them into silent direct connections.
+/// Same single-transfer pattern for NEAppProxyUDPFlow.
+private struct UDPFlowBox: @unchecked Sendable {
+    let flow: NEAppProxyUDPFlow
+}
+
+/// Executes DIRECT decisions for intercepted flows: TCP flows are opened,
+/// dialed to the original destination bound to the current physical interface
+/// and copied by a bounded bidirectional `ExternalFlowRelay`; UDP flows become
+/// an endpoint-keyed bounded `ExternalFlowUDPRelay` (ADR-EX-FLOW-03). Decision
+/// happens synchronously in `handle`; everything after `return true` is
+/// fail-closed (the flow is closed on any error, limit or timeout, never
+/// silently handed back). While paused (ADR-EX-INT-08), DIRECT-matched flows
+/// are closed immediately instead of relayed, so a VPN outage cannot turn them
+/// into silent direct connections. UDP flows expose no remote endpoint at
+/// handleNewFlow time, so their descriptor carries no destination IP and only
+/// APPLICATION/DOMAIN-class rules can match (ADR-EX-FLOW-03 decision 2).
 /// No flow content is logged or persisted anywhere in this file.
 final class ExternalFlowRelayEngine: @unchecked Sendable {
     private struct State {
@@ -41,6 +50,7 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         var paused = false
         var interface: NWInterface?
         var relays: [UUID: ExternalFlowRelay] = [:]
+        var udpRelays: [UUID: ExternalFlowUDPRelay] = [:]
     }
     private let state = LockedBox(State())
     private let registry: ExternalFlowRelayRegistry
@@ -69,14 +79,18 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         monitor.start(queue: monitorQueue)
     }
 
-    /// Cancels every live relay and stops interface tracking. Called from stopProxy.
+    /// Cancels every live relay (TCP and UDP) and stops interface tracking.
+    /// Called from stopProxy.
     func stop() {
-        let relays = state.withLock { s -> [ExternalFlowRelay] in
+        let (relays, udpRelays) = state.withLock { s -> ([ExternalFlowRelay], [ExternalFlowUDPRelay]) in
             s.policy = nil; s.interface = nil
-            let relays = Array(s.relays.values); s.relays.removeAll(); return relays
+            let relays = Array(s.relays.values); s.relays.removeAll()
+            let udpRelays = Array(s.udpRelays.values); s.udpRelays.removeAll()
+            return (relays, udpRelays)
         }
         if monitorRunning { monitor.cancel(); monitorRunning = false }
         for relay in relays { Task { await relay.cancel() } }
+        for relay in udpRelays { Task { await relay.cancel() } }
     }
 
     /// Runtime pause switch (ADR-EX-INT-08). Not persisted: startProxy always
@@ -113,6 +127,39 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         let id = UUID()
         let box = FlowBox(flow: flow)
         Task { [self] in await run(box.flow, interface: interface, id: id, counters: counters) }
+        return true
+    }
+
+    /// UDP counterpart of the TCP decision (ADR-EX-FLOW-03). The flow has no
+    /// remote endpoint yet, so `remoteEndpointHost` is nil and IP-CIDR rules
+    /// cannot match; only APPLICATION/DOMAIN-class rules take UDP over.
+    /// Gate, pause semantics and the shared concurrency registry are the same
+    /// as for TCP.
+    func handle(_ flow: NEAppProxyUDPFlow, counters: ProbeCounters) -> Bool {
+        let (policy, paused, interface) = state.withLock { ($0.policy, $0.paused, $0.interface) }
+        let signingIdentifier = flow.metaData.sourceAppSigningIdentifier
+        let descriptor = ExternalFlowDescriptor(
+            sourceAppSigningIdentifier: signingIdentifier.isEmpty ? nil : signingIdentifier,
+            remoteHostname: flow.remoteHostname,
+            remoteEndpointHost: nil)
+        switch ExternalFlowRelayGate.decide(policy: policy, paused: paused, descriptor: descriptor,
+                                            hasInterface: interface != nil) {
+        case .passThrough:
+            return false
+        case .closedPaused:
+            counters.recordRelayRefusedPaused()
+            Self.close(flow)
+            return true
+        case .refusedInterface:
+            counters.recordRelayRefusedInterface()
+            return false
+        case .relay:
+            break
+        }
+        guard let interface else { return false }
+        let id = UUID()
+        let box = UDPFlowBox(flow: flow)
+        Task { [self] in await runUDP(box.flow, interface: interface, id: id, counters: counters) }
         return true
     }
 
@@ -154,6 +201,50 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         }
     }
 
+    private func runUDP(_ flow: NEAppProxyUDPFlow, interface: NWInterface, id: UUID,
+                        counters: ProbeCounters) async {
+        do { try await registry.admit() }
+        catch {
+            counters.recordRelayUDPRefusedLimit()
+            Self.close(flow)
+            return
+        }
+        counters.recordRelayUDPStarted()
+        var outcome = ExternalFlowRelayOutcome.failed
+        defer {
+            counters.recordRelayUDPEnded(outcome)
+            state.withLock { _ = $0.udpRelays.removeValue(forKey: id) }
+            Task { await registry.release() }
+            Self.close(flow)
+        }
+        do {
+            try await Self.open(flow)
+            let source = UDPFlowSource(flow: flow)
+            let relay = ExternalFlowUDPRelay(
+                source: source,
+                factory: UDPLinkFactory(interface: interface, source: source),
+                limits: ExternalFlowUDPRelayLimits(idleTimeout: limits.idleTimeout))
+            state.withLock { $0.udpRelays[id] = relay }
+            outcome = await relay.run()
+        } catch {
+            outcome = .failed
+        }
+    }
+
+    private static func close(_ flow: NEAppProxyUDPFlow) {
+        flow.closeReadWithError(nil)
+        flow.closeWriteWithError(nil)
+    }
+
+    private static func open(_ flow: NEAppProxyUDPFlow) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            flow.open(withLocalFlowEndpoint: nil) { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
+        }
+    }
+
     private static func close(_ flow: NEAppProxyTCPFlow) {
         flow.closeReadWithError(nil)
         flow.closeWriteWithError(nil)
@@ -168,7 +259,7 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         }
     }
 
-    private static func established(_ connection: NWConnection) async throws {
+    fileprivate static func established(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             connection.stateUpdateHandler = { state in
                 switch state {
@@ -248,6 +339,109 @@ private final class ConnectionPipe: ExternalFlowPipe, @unchecked Sendable {
     func closeWrite() async {
         connection.send(content: nil, contentContext: .defaultMessage, isComplete: true,
                         completion: .contentProcessed { _ in })
+    }
+    func close() async { connection.cancel() }
+}
+
+/// NEAppProxyUDPFlow side of a UDP relay. Endpoint keys are remembered per
+/// flow so responses can be written back with the original NWEndpoint; the
+/// table is bounded by the relay's per-flow endpoint limit and dropped with
+/// the flow. Nothing is logged or persisted.
+private final class UDPFlowSource: ExternalFlowUDPDatagramSource, @unchecked Sendable {
+    private let flow: NEAppProxyUDPFlow
+    private let endpoints = LockedBox<[ExternalFlowUDPEndpoint: NWEndpoint]>([:])
+    private let closed = LockedBox(false)
+
+    init(flow: NEAppProxyUDPFlow) { self.flow = flow }
+
+    func nwEndpoint(for key: ExternalFlowUDPEndpoint) -> NWEndpoint? {
+        endpoints.withLock { $0[key] }
+    }
+
+    func readDatagrams() async throws -> [ExternalFlowUDPDatagram]? {
+        let (datagrams, error) = await flow.readDatagrams()
+        if let error {
+            if closed.withLock({ $0 }) { return nil }
+            throw error
+        }
+        guard let datagrams, !datagrams.isEmpty else {
+            return closed.withLock { $0 } ? nil : []
+        }
+        var result: [ExternalFlowUDPDatagram] = []
+        result.reserveCapacity(datagrams.count)
+        for (data, endpoint) in datagrams {
+            guard let key = Self.key(for: endpoint) else { continue }
+            endpoints.withLock { $0[key] = endpoint }
+            result.append(ExternalFlowUDPDatagram(endpoint: key, data: data))
+        }
+        return result
+    }
+
+    func writeDatagrams(_ datagrams: [ExternalFlowUDPDatagram]) async throws {
+        var pairs: [(Data, NWEndpoint)] = []
+        pairs.reserveCapacity(datagrams.count)
+        for datagram in datagrams {
+            guard let endpoint = nwEndpoint(for: datagram.endpoint) else { continue }
+            pairs.append((datagram.data, endpoint))
+        }
+        guard !pairs.isEmpty else { return }
+        try await flow.writeDatagrams(pairs)
+    }
+
+    func close() async {
+        closed.withLock { $0 = true }
+        flow.closeReadWithError(nil)
+        flow.closeWriteWithError(nil)
+    }
+
+    private static func key(for endpoint: NWEndpoint) -> ExternalFlowUDPEndpoint? {
+        guard case .hostPort(let host, let port) = endpoint else { return nil }
+        return ExternalFlowUDPEndpoint(host: "\(host)", port: port.rawValue)
+    }
+}
+
+/// Builds one UDP NWConnection per remote endpoint, bound to the physical
+/// interface, and waits for it to reach ready before the relay uses it.
+private struct UDPLinkFactory: ExternalFlowUDPLinkFactory {
+    let interface: NWInterface
+    let source: UDPFlowSource
+
+    func makeLink(endpoint: ExternalFlowUDPEndpoint) async throws -> any ExternalFlowUDPLink {
+        guard let remote = source.nwEndpoint(for: endpoint) else {
+            throw ExternalFlowRelayEngineError.connectionFailed
+        }
+        let parameters = NWParameters.udp
+        parameters.requiredInterface = interface
+        let connection = NWConnection(to: remote, using: parameters)
+        let link = UDPLink(connection: connection)
+        try await ExternalFlowRelayEngine.established(connection)
+        return link
+    }
+}
+
+/// Per-endpoint upstream UDP connection. `receive` returns whole datagrams and
+/// nil once the connection is cancelled; `close` cancels the connection, which
+/// also completes any pending receive.
+private final class UDPLink: ExternalFlowUDPLink, @unchecked Sendable {
+    private let connection: NWConnection
+    init(connection: NWConnection) { self.connection = connection }
+
+    func send(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            connection.send(content: data, completion: .contentProcessed { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            })
+        }
+    }
+    func receive() async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            connection.receiveMessage { content, _, _, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let content, !content.isEmpty else { continuation.resume(returning: nil); return }
+                continuation.resume(returning: content)
+            }
+        }
     }
     func close() async { connection.cancel() }
 }

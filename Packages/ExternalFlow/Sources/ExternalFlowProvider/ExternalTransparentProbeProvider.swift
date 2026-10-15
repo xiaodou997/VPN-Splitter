@@ -31,6 +31,7 @@ final class ProbeCounters: @unchecked Sendable {
     func recordRelayRefusedInterface() { lock.lock(); report.relayRefusedInterface += 1; lock.unlock() }
     func recordRelayRefusedLimit() { lock.lock(); report.relayRefusedLimit += 1; lock.unlock() }
     func recordRelayRefusedPaused() { lock.lock(); report.relayRefusedPaused += 1; lock.unlock() }
+    func recordRelayUDPRefusedLimit() { lock.lock(); report.relayUDPRefusedLimit += 1; lock.unlock() }
     func recordRelayStarted() {
         lock.lock(); report.relayStarted += 1; report.relayActive += 1; lock.unlock()
     }
@@ -43,6 +44,18 @@ final class ProbeCounters: @unchecked Sendable {
         case .cancelled: report.relayCancelled += 1
         }
     }
+    func recordRelayUDPStarted() {
+        lock.lock(); report.relayUDPStarted += 1; report.relayUDPActive += 1; lock.unlock()
+    }
+    func recordRelayUDPEnded(_ outcome: ExternalFlowRelayOutcome) {
+        lock.lock(); defer { lock.unlock() }
+        report.relayUDPActive = max(0, report.relayUDPActive - 1)
+        switch outcome {
+        case .completed: report.relayUDPCompleted += 1
+        case .failed: report.relayUDPFailed += 1
+        case .cancelled: report.relayUDPCancelled += 1
+        }
+    }
     func snapshot() -> ExternalFlowProbeReport { lock.lock(); defer { lock.unlock() }; return report }
 }
 
@@ -50,9 +63,11 @@ final class ProbeCounters: @unchecked Sendable {
 /// providerConfiguration it stays a pure pass-through probe (FLOW-01): it
 /// counts metadata and returns false for every flow. With valid rules, TCP
 /// flows matching a DIRECT rule are relayed by ExternalFlowRelayEngine over a
-/// provider-owned connection bound to the physical interface (FLOW-02);
-/// unmatched flows still return false. While paused via provider message
-/// (ADR-EX-INT-08), matched flows are closed instead of relayed.
+/// provider-owned connection bound to the physical interface (FLOW-02), and
+/// UDP flows matching an APPLICATION/DOMAIN-class rule are relayed as an
+/// endpoint-keyed bounded NAT (FLOW-03); unmatched flows still return false.
+/// While paused via provider message (ADR-EX-INT-08), matched flows are closed
+/// instead of relayed.
 public final class ExternalTransparentProbeProvider: NETransparentProxyProvider {
     private let counters = ProbeCounters()
     private let engine = ExternalFlowRelayEngine()
@@ -64,7 +79,10 @@ public final class ExternalTransparentProbeProvider: NETransparentProxyProvider 
         settings.includedNetworkRules = [
             NENetworkRule(remoteNetworkEndpoint: nil, remotePrefix: 0,
                           localNetworkEndpoint: nil, localPrefix: 0,
-                          protocol: .TCP, direction: .outbound)
+                          protocol: .TCP, direction: .outbound),
+            NENetworkRule(remoteNetworkEndpoint: nil, remotePrefix: 0,
+                          localNetworkEndpoint: nil, localPrefix: 0,
+                          protocol: .UDP, direction: .outbound)
         ]
         setTunnelNetworkSettings(settings, completionHandler: completionHandler)
     }
@@ -77,8 +95,9 @@ public final class ExternalTransparentProbeProvider: NETransparentProxyProvider 
 
     public override func handleNewFlow(_ flow: NEAppProxyFlow) -> Bool {
         counters.record(flow)
-        guard let tcp = flow as? NEAppProxyTCPFlow else { return false }
-        return engine.handle(tcp, counters: counters)
+        if let tcp = flow as? NEAppProxyTCPFlow { return engine.handle(tcp, counters: counters) }
+        if let udp = flow as? NEAppProxyUDPFlow { return engine.handle(udp, counters: counters) }
+        return false
     }
 
     /// Bounded message surface (ADR-EX-INT-08): a read-only counters report

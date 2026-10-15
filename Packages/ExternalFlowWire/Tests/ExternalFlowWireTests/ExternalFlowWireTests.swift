@@ -68,6 +68,35 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
         XCTAssertThrowsError(try invalid.validated())
     }
 
+    func testUDPRelayFieldsRoundtripAndStayBackwardCompatible() throws {
+        var report = ExternalFlowProbeReport()
+        report.total = 5; report.tcp = 2; report.udp = 3
+        report.relayUDPStarted = 3; report.relayUDPActive = 1
+        report.relayUDPCompleted = 1; report.relayUDPFailed = 1
+        let data = try JSONEncoder().encode(report)
+        let decoded = try JSONDecoder().decode(ExternalFlowProbeReport.self, from: data)
+        XCTAssertEqual(decoded, report)
+        XCTAssertNoThrow(try decoded.validated())
+        // Reports written by older providers without UDP relay fields still decode.
+        let legacy = Data("""
+        {"format":"external-flow-probe-v1","total":1,"tcp":1,"udp":0,\
+        "withSourceSigningIdentifier":1,"withRemoteHostname":0,"withRemoteEndpoint":1}
+        """.utf8)
+        let old = try JSONDecoder().decode(ExternalFlowProbeReport.self, from: legacy)
+        XCTAssertEqual(old.relayUDPStarted, 0)
+        XCTAssertEqual(old.relayUDPActive, 0)
+        XCTAssertEqual(old.relayUDPRefusedLimit, 0)
+        XCTAssertNoThrow(try old.validated())
+        // UDP counters are bounded like every other counter.
+        var invalidSum = ExternalFlowProbeReport()
+        invalidSum.total = 1; invalidSum.udp = 1
+        invalidSum.relayUDPStarted = 1; invalidSum.relayUDPCompleted = 2
+        XCTAssertThrowsError(try invalidSum.validated())
+        var invalidRefusal = ExternalFlowProbeReport()
+        invalidRefusal.relayUDPRefusedLimit = 1
+        XCTAssertThrowsError(try invalidRefusal.validated())
+    }
+
     func testRoundtripStoreUsesCountsOnly() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "flow-wire-" + UUID().uuidString, isDirectory: true)

@@ -136,7 +136,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
             let store = try ExternalFlowProbeSnapshotStore.applicationStore()
             try await store.save(snapshot)
             if let report = attempt.1 {
-                self.configurationStatus = "provider message=PASS；TCP \(report.tcp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)；rules=\(report.rulesLoaded)，relay started/completed/failed=\(report.relayStarted)/\(report.relayCompleted)/\(report.relayFailed)。"
+                self.configurationStatus = "provider message=PASS；TCP \(report.tcp) / UDP \(report.udp)，App ID 可见 \(report.withSourceSigningIdentifier)，hostname 可见 \(report.withRemoteHostname)；rules=\(report.rulesLoaded)，relay started/completed/failed=\(report.relayStarted)/\(report.relayCompleted)/\(report.relayFailed)，UDP relay=\(report.relayUDPStarted)/\(report.relayUDPCompleted)/\(report.relayUDPFailed)。"
             } else {
                 self.configurationStatus = "已发布配置/连接状态；provider message=" + (attempt.0 ?? "not_attempted") + "。"
             }
