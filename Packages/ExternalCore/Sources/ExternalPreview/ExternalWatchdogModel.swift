@@ -19,6 +19,10 @@ final class ExternalWatchdogModel: ObservableObject {
     @Published private(set) var running = false
     @Published private(set) var health: ExternalVPNHealth?
     @Published private(set) var events: [ExternalWatchdogEventRecord] = []
+    /// Presentation-only alert state (ADR-EX-INT-08): set by anomaly/topology
+    /// change events, cleared by reconnect, stop or explicit dismissal. The
+    /// model never acts on it; responses are orchestrated by the view layer.
+    @Published private(set) var activeAlert: ExternalWatchdogEvent?
     @Published private(set) var message = "未监测。开始后用与「检测网络」相同的只读采集按固定间隔观察；不修改路由、DNS 或原 VPN。"
     private let reader = ExternalSystemReader()
     private var tracker = ExternalWatchdogTracker()
@@ -58,7 +62,7 @@ final class ExternalWatchdogModel: ObservableObject {
     func start() {
         guard loop == nil else { return }
         tracker = ExternalWatchdogTracker()
-        health = nil; events = []
+        health = nil; events = []; activeAlert = nil
         running = true
         message = "监测中：每 \(Int(Self.pollIntervalSeconds)) 秒只读采集一次；不修改网络，停止或退出即结束。"
         loop = Task { @MainActor [self] in
@@ -72,8 +76,11 @@ final class ExternalWatchdogModel: ObservableObject {
     func stop() {
         loop?.cancel(); loop = nil
         running = false
+        activeAlert = nil
         message = "监测已停止；未修改网络，事件只保留在本窗口内存。"
     }
+
+    func dismissAlert() { activeAlert = nil }
 
     private func poll() async {
         do {
@@ -92,6 +99,15 @@ final class ExternalWatchdogModel: ObservableObject {
         events.insert(ExternalWatchdogEventRecord(event: event, uptime: ProcessInfo.processInfo.systemUptime), at: 0)
         if events.count > Self.maximumEvents { events.removeLast(events.count - Self.maximumEvents) }
         message = eventSummary(event)
+        switch event {
+        case .vpnDisconnected, .physicalPathLost, .topologyBecameUnsupported,
+             .tunnelInterfaceChanged, .physicalPathChanged, .routingPatternChanged:
+            activeAlert = event
+        case .vpnReconnected:
+            activeAlert = nil
+        case .initialOnline, .initialUnavailable, .observationFailed:
+            break
+        }
     }
 }
 #endif

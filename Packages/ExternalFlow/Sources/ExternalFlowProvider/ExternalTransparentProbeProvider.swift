@@ -30,6 +30,7 @@ final class ProbeCounters: @unchecked Sendable {
     }
     func recordRelayRefusedInterface() { lock.lock(); report.relayRefusedInterface += 1; lock.unlock() }
     func recordRelayRefusedLimit() { lock.lock(); report.relayRefusedLimit += 1; lock.unlock() }
+    func recordRelayRefusedPaused() { lock.lock(); report.relayRefusedPaused += 1; lock.unlock() }
     func recordRelayStarted() {
         lock.lock(); report.relayStarted += 1; report.relayActive += 1; lock.unlock()
     }
@@ -50,7 +51,8 @@ final class ProbeCounters: @unchecked Sendable {
 /// counts metadata and returns false for every flow. With valid rules, TCP
 /// flows matching a DIRECT rule are relayed by ExternalFlowRelayEngine over a
 /// provider-owned connection bound to the physical interface (FLOW-02);
-/// unmatched flows still return false.
+/// unmatched flows still return false. While paused via provider message
+/// (ADR-EX-INT-08), matched flows are closed instead of relayed.
 public final class ExternalTransparentProbeProvider: NETransparentProxyProvider {
     private let counters = ProbeCounters()
     private let engine = ExternalFlowRelayEngine()
@@ -79,10 +81,29 @@ public final class ExternalTransparentProbeProvider: NETransparentProxyProvider 
         return engine.handle(tcp, counters: counters)
     }
 
+    /// Bounded message surface (ADR-EX-INT-08): a read-only counters report
+    /// plus two parameterless relay pause/resume verbs. Pause is runtime-only
+    /// and never persists; unknown messages get no response.
     public override func handleAppMessage(_ messageData: Data,
                                           completionHandler: ((Data?) -> Void)? = nil) {
-        guard messageData == Data("probe-report-v1".utf8) else { completionHandler?(nil); return }
-        completionHandler?(try? JSONEncoder().encode(counters.snapshot()))
+        switch messageData {
+        case Data("probe-report-v1".utf8):
+            completionHandler?(try? JSONEncoder().encode(currentReport()))
+        case Data("relay-pause-v1".utf8):
+            engine.setPaused(true)
+            completionHandler?(try? JSONEncoder().encode(currentReport()))
+        case Data("relay-resume-v1".utf8):
+            engine.setPaused(false)
+            completionHandler?(try? JSONEncoder().encode(currentReport()))
+        default:
+            completionHandler?(nil)
+        }
+    }
+
+    private func currentReport() -> ExternalFlowProbeReport {
+        var report = counters.snapshot()
+        report.relayPaused = engine.isPaused
+        return report
     }
 
     private static func loadPolicy(from configuration: NEVPNProtocol?,

@@ -23,6 +23,11 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
     public var relayCompleted = 0
     public var relayFailed = 0
     public var relayCancelled = 0
+    /// Runtime pause switch (ADR-EX-INT-08): while true, DIRECT-matched flows
+    /// are closed instead of relayed.
+    public var relayPaused = false
+    /// DIRECT-matched flows closed because the relay was paused.
+    public var relayRefusedPaused = 0
 
     public init() {}
 
@@ -30,6 +35,7 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
         case format, total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint
         case rulesLoaded, rulesRejected, relayRefusedInterface, relayRefusedLimit
         case relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled
+        case relayPaused, relayRefusedPaused
     }
 
     public init(from decoder: any Decoder) throws {
@@ -50,6 +56,8 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
         relayCompleted = try container.decodeIfPresent(Int.self, forKey: .relayCompleted) ?? 0
         relayFailed = try container.decodeIfPresent(Int.self, forKey: .relayFailed) ?? 0
         relayCancelled = try container.decodeIfPresent(Int.self, forKey: .relayCancelled) ?? 0
+        relayPaused = try container.decodeIfPresent(Bool.self, forKey: .relayPaused) ?? false
+        relayRefusedPaused = try container.decodeIfPresent(Int.self, forKey: .relayRefusedPaused) ?? 0
     }
 
     public var appIdentityObservable: Bool { total > 0 && withSourceSigningIdentifier > 0 }
@@ -58,7 +66,7 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
     public func validated() throws -> Self {
         guard format == Self.schema else { throw ExternalFlowProbeWireError.unsupportedVersion }
         let values = [total, tcp, udp, withSourceSigningIdentifier, withRemoteHostname, withRemoteEndpoint,
-                      rulesRejected, relayRefusedInterface, relayRefusedLimit,
+                      rulesRejected, relayRefusedInterface, relayRefusedLimit, relayRefusedPaused,
                       relayStarted, relayActive, relayCompleted, relayFailed, relayCancelled]
         guard values.allSatisfy({ $0 >= 0 && $0 <= 10_000_000 }),
               (0...ExternalFlowRulesWire.maxRules).contains(rulesLoaded),
@@ -68,6 +76,7 @@ public struct ExternalFlowProbeReport: Codable, Equatable, Sendable {
               withRemoteEndpoint <= total,
               relayRefusedInterface <= total,
               relayRefusedLimit <= total,
+              relayRefusedPaused <= total,
               relayActive <= relayStarted,
               relayCompleted + relayFailed + relayCancelled <= relayStarted else {
             throw ExternalFlowProbeWireError.invalidReport

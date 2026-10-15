@@ -31,11 +31,14 @@ private struct FlowBox: @unchecked Sendable {
 /// destination bound to the current physical interface, and runs a bounded
 /// bidirectional `ExternalFlowRelay`. Decision happens synchronously in
 /// `handle`; everything after `return true` is fail-closed (the flow is closed
-/// on any error, limit or timeout, never silently handed back). No flow
-/// content is logged or persisted anywhere in this file.
+/// on any error, limit or timeout, never silently handed back). While paused
+/// (ADR-EX-INT-08), DIRECT-matched flows are closed immediately instead of
+/// relayed, so a VPN outage cannot turn them into silent direct connections.
+/// No flow content is logged or persisted anywhere in this file.
 final class ExternalFlowRelayEngine: @unchecked Sendable {
     private struct State {
         var policy: ExternalFlowPolicy?
+        var paused = false
         var interface: NWInterface?
         var relays: [UUID: ExternalFlowRelay] = [:]
     }
@@ -76,22 +79,37 @@ final class ExternalFlowRelayEngine: @unchecked Sendable {
         for relay in relays { Task { await relay.cancel() } }
     }
 
+    /// Runtime pause switch (ADR-EX-INT-08). Not persisted: startProxy always
+    /// resumes with the compiled policy, so a probe restart clears the pause.
+    var isPaused: Bool { state.withLock { $0.paused } }
+    func setPaused(_ paused: Bool) { state.withLock { $0.paused = paused } }
+
     /// Synchronous decision only. Returns true when this flow matched a DIRECT
     /// rule and the engine takes ownership (async, fail-closed); false keeps
-    /// the flow on the system/VPN path.
+    /// the flow on the system/VPN path. While paused, matched flows are taken
+    /// over and closed immediately instead of being relayed or handed back.
     func handle(_ flow: NEAppProxyTCPFlow, counters: ProbeCounters) -> Bool {
-        let (policy, interface) = state.withLock { ($0.policy, $0.interface) }
-        guard let policy else { return false }
+        let (policy, paused, interface) = state.withLock { ($0.policy, $0.paused, $0.interface) }
         let signingIdentifier = flow.metaData.sourceAppSigningIdentifier
         let descriptor = ExternalFlowDescriptor(
             sourceAppSigningIdentifier: signingIdentifier.isEmpty ? nil : signingIdentifier,
             remoteHostname: flow.remoteHostname,
             remoteEndpointHost: Self.hostString(flow.remoteFlowEndpoint))
-        guard case .direct = policy.evaluate(descriptor) else { return false }
-        guard let interface else {
+        switch ExternalFlowRelayGate.decide(policy: policy, paused: paused, descriptor: descriptor,
+                                            hasInterface: interface != nil) {
+        case .passThrough:
+            return false
+        case .closedPaused:
+            counters.recordRelayRefusedPaused()
+            Self.close(flow)
+            return true
+        case .refusedInterface:
             counters.recordRelayRefusedInterface()
             return false
+        case .relay:
+            break
         }
+        guard let interface else { return false }
         let id = UUID()
         let box = FlowBox(flow: flow)
         Task { [self] in await run(box.flow, interface: interface, id: id, counters: counters) }

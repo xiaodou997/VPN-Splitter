@@ -46,6 +46,33 @@ class ExternalFlowContracts(unittest.TestCase):
         for token in ['external-flow-rules-v1', 'maxRules = 64', 'maxTargetBytes = 512', 'validated()']:
             self.assertIn(token, wire)
 
+    def test_int08_relay_pause_is_bounded_hot_and_fail_closed(self):
+        provider = self.provider_sources()
+        gate = (PACKAGE / 'Sources/ExternalFlowCore/ExternalFlowRelayGate.swift').read_text()
+        controller = (ROOT / 'integrations/external-flow/FlowProbeController.swift').read_text()
+        app = (ROOT / 'integrations/external-flow/FlowProbeApp.swift').read_text()
+        # Fail-closed gate: a paused, DIRECT-matched flow is closed, never
+        # relayed and never passed back to the system path.
+        for token in ['enum ExternalFlowRelayGate', 'closedPaused',
+                      'if paused { return .closedPaused }']:
+            self.assertIn(token, gate)
+        # The provider message write surface is exactly two parameterless verbs.
+        for verb in ['relay-pause-v1', 'relay-resume-v1']:
+            self.assertEqual(provider.count(f'Data("{verb}"'), 1)
+        for token in ['engine.setPaused(true)', 'engine.setPaused(false)',
+                      'recordRelayRefusedPaused', 'relayPaused']:
+            self.assertIn(token, provider)
+        # Pause is runtime-only: it never touches preferences or the rules channel.
+        section = controller[controller.index('func setRelayPaused'):]
+        section = section[:section.index('private static func')]
+        self.assertNotIn('saveToPreferences', section)
+        self.assertNotIn('VPNSplitterFlowRules', section)
+        # Host-app control stays explicit buttons, nothing automatic.
+        for token in ['setRelayPaused(true)', 'setRelayPaused(false)']:
+            self.assertIn(token, app)
+        self.assertNotIn('.task {', app)
+        self.assertNotIn('.onAppear', app)
+
     def test_builder_never_installs_or_executes(self):
         path = ROOT / 'tools/external/flow-build.py'
         project = ROOT / 'tools/external/flow_project.py'
@@ -140,7 +167,8 @@ class ExternalFlowContracts(unittest.TestCase):
         for token in ['configurationCount', 'connectionStatus', 'providerReport',
                       'withSourceSigningIdentifier', 'withRemoteHostname',
                       'rulesLoaded', 'relayStarted', 'relayActive', 'relayCompleted',
-                      'relayFailed', 'relayCancelled', 'relayRefusedInterface', 'relayRefusedLimit']:
+                      'relayFailed', 'relayCancelled', 'relayRefusedInterface', 'relayRefusedLimit',
+                      'relayPaused', 'relayRefusedPaused']:
             self.assertIn(token, wire)
         for forbidden in ['hostname: String', 'signingIdentifier: String', 'ipAddress', 'remotePort', 'payload']:
             self.assertNotIn(forbidden, wire)

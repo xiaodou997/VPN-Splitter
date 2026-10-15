@@ -30,9 +30,10 @@ class WatchdogContracts(unittest.TestCase):
     def test_model_is_explicit_start_and_prompt_only(self):
         source = MODEL.read_text()
         for token in ['func start()', 'func stop()', 'guard loop == nil', 'ExternalSystemReader',
-                      'maximumEvents', 'Task.isCancelled']:
+                      'maximumEvents', 'Task.isCancelled', 'activeAlert', 'dismissAlert()']:
             self.assertIn(token, source)
-        # No automatic start, no writes, no privileged or data-plane calls.
+        # No automatic start, no writes, no privileged or data-plane calls; the
+        # alert is presentation-only and responses stay in the view layer.
         for token in ['ExternalHelperModel', 'helper.', 'ExternalExecution', 'ExternalFlowBridge',
                       'write(to:', 'UserDefaults', 'Timer(', 'SCDynamicStoreSet', 'NETunnelProvider',
                       'NWConnection', 'init() {']:
@@ -45,6 +46,11 @@ class WatchdogContracts(unittest.TestCase):
         self.assertIn('watchdog.stop()', app)          # sleep/wake shutdown
         self.assertIn('watchdog.start()', navigation)  # explicit button only
         self.assertIn('watchdog: watchdog', app)
+        # ADR-EX-INT-08 banner: anomaly alert with explicit, user-confirmed responses.
+        self.assertIn('ExternalWatchdogAlertBanner', navigation)
+        self.assertIn('watchdog.activeAlert', navigation)
+        self.assertIn('watchdog.dismissAlert()', navigation)
+        self.assertIn('helper.stop()', navigation)
         for token in ['.onAppear', '.task {', 'UserDefaults', '@AppStorage', 'write(to:', 'NSPasteboard']:
             self.assertNotIn(token, app + navigation)
 

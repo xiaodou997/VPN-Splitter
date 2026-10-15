@@ -143,6 +143,43 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
     }
 
+    /// ADR-EX-INT-08: hot relay pause/resume over the provider message channel.
+    /// No tunnel restart and no preferences rewrite; the pause lives only in
+    /// the running provider and is cleared by a probe restart.
+    func setRelayPaused(_ paused: Bool) {
+        perform {
+            let manager = try await Self.requireManager()
+            guard manager.connection.status == .connected else {
+                throw FlowProbeControlError.probeNotConnected
+            }
+            guard let session = manager.connection as? NETunnelProviderSession else {
+                throw FlowProbeControlError.unsupportedSession
+            }
+            let verb = paused ? "relay-pause-v1" : "relay-resume-v1"
+            guard let data = try await Self.sendProviderMessage(session, verb: verb),
+                  !data.isEmpty, data.count <= 16_384,
+                  let report = try? JSONDecoder().decode(ExternalFlowProbeReport.self, from: data).validated() else {
+                throw FlowProbeControlError.providerMessageFailed
+            }
+            self.configurationStatus = report.relayPaused == paused
+                ? (paused ? "DIRECT relay 已暂停：匹配的 TCP flow 将被关闭而非直连，未匹配 flow 不变；重启探针会清除暂停。"
+                          : "DIRECT relay 已恢复：匹配的 TCP flow 继续经物理接口直连。")
+                : "暂停状态与预期不一致（relayPaused=\(report.relayPaused)）；请重新发布报告核对。"
+        }
+    }
+
+    private static func sendProviderMessage(_ session: NETunnelProviderSession, verb: String) async throws -> Data? {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try session.sendProviderMessage(Data(verb.utf8)) { response in
+                    continuation.resume(returning: response)
+                }
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     private func perform(_ work: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true
@@ -160,15 +197,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
         }
         let data: Data?
         do {
-            data = try await withCheckedThrowingContinuation { continuation in
-                do {
-                    try session.sendProviderMessage(Data("probe-report-v1".utf8)) { response in
-                        continuation.resume(returning: response)
-                    }
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+            data = try await sendProviderMessage(session, verb: "probe-report-v1")
         } catch {
             return ("send_failed", nil)
         }
@@ -244,4 +273,7 @@ final class FlowProbeController: NSObject, ObservableObject, OSSystemExtensionRe
 
 enum FlowProbeControlError: String, Error {
     case configurationMissing
+    case probeNotConnected
+    case unsupportedSession
+    case providerMessageFailed
 }

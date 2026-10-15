@@ -42,9 +42,14 @@ struct ExternalRootView: View {
             .navigationTitle("VPN-Splitter")
             .navigationSplitViewColumnWidth(min: 170, ideal: 205, max: 240)
         } detail: {
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.background)
+            VStack(spacing: 0) {
+                if let alert = watchdog.activeAlert {
+                    ExternalWatchdogAlertBanner(event: alert, watchdog: watchdog, helper: helper)
+                }
+                detail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.background)
+            }
         }
         .frame(minWidth: 980, minHeight: 680)
         .toolbar {
@@ -126,6 +131,32 @@ private struct ExternalPageHeader: View {
             Text(title).font(.largeTitle).bold()
             Text(subtitle).foregroundStyle(.secondary)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// ADR-EX-INT-08: VPN anomaly banner. Responses are explicit clicks only:
+/// stopping the Helper session revokes applied route exceptions (recovery
+/// semantics, never a blackhole); pausing the Flow relay requires the Flow
+/// Probe App because this process holds no Network Extension session.
+private struct ExternalWatchdogAlertBanner: View {
+    let event: ExternalWatchdogEvent
+    @ObservedObject var watchdog: ExternalWatchdogModel
+    @ObservedObject var helper: ExternalHelperModel
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("VPN 状态异常：" + watchdog.eventSummary(event)).font(.headline)
+                Text("可在此停止 Helper 分流会话（只撤销本工具添加的路由例外，不阻断联网）；Flow DIRECT relay 的暂停需在 Flow Probe App 点「暂停 DIRECT relay」，暂停后匹配的 TCP 连接会被关闭而不是直连。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("停止 Helper 分流会话") { helper.stop() }.disabled(helper.busy)
+            Button("知道了") { watchdog.dismissAlert() }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity)
+        .background(.yellow.opacity(0.12))
     }
 }
 

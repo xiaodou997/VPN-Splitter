@@ -45,6 +45,29 @@ final class ExternalFlowWireTests: XCTestCase, @unchecked Sendable {
             providerReport: nil).validated())
     }
 
+    func testPauseFieldsRoundtripAndStayBackwardCompatible() throws {
+        var report = ExternalFlowProbeReport()
+        report.total = 3; report.tcp = 3
+        report.relayPaused = true; report.relayRefusedPaused = 2
+        let data = try JSONEncoder().encode(report)
+        let decoded = try JSONDecoder().decode(ExternalFlowProbeReport.self, from: data)
+        XCTAssertEqual(decoded, report)
+        XCTAssertNoThrow(try decoded.validated())
+        // Reports written by older providers without pause fields still decode.
+        let legacy = Data("""
+        {"format":"external-flow-probe-v1","total":1,"tcp":1,"udp":0,\
+        "withSourceSigningIdentifier":1,"withRemoteHostname":0,"withRemoteEndpoint":1}
+        """.utf8)
+        let old = try JSONDecoder().decode(ExternalFlowProbeReport.self, from: legacy)
+        XCTAssertFalse(old.relayPaused)
+        XCTAssertEqual(old.relayRefusedPaused, 0)
+        XCTAssertNoThrow(try old.validated())
+        // Pause refusals are bounded like every other counter.
+        var invalid = ExternalFlowProbeReport()
+        invalid.relayRefusedPaused = 1
+        XCTAssertThrowsError(try invalid.validated())
+    }
+
     func testRoundtripStoreUsesCountsOnly() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "flow-wire-" + UUID().uuidString, isDirectory: true)
