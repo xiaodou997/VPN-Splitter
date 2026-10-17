@@ -35,7 +35,8 @@ public struct ExternalSystemSnapshotReader: Sendable {
                     }
                 }
             }
-            // Compare semantic rows, excluding countdowns and scoped-neighbor reference bits, retaining expired status. No automatic
+            // Compare semantic rows, excluding countdowns and cloned neighbor cache rows (ADR-EX-INT-11),
+            // retaining expired status of retained rows. No automatic
             // retry. This is a bounded observation window, not a kernel atomic snapshot.
             guard ExternalRouteEpoch.rows(routes) == ExternalRouteEpoch.rows(try ExternalRouteTable.parseDiagnosing(readRoutes())),
                   interfaces == (try nics()),

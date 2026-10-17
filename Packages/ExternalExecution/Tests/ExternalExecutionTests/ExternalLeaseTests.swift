@@ -163,32 +163,55 @@ final class ExternalLeaseTests: XCTestCase {
         XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("10.8.0.1"))
         XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("utun42"))
     }
-    func testInterfaceReferenceEpochDoesNotHideOtherFields() throws {
+    // ADR-EX-INT-11: cloned neighbor cache rows (/32, exactly UHLWI/UHLWIi) are dropped
+    // from the epoch view; churn confined to them no longer terminates the lease.
+    func testClonedNeighborCacheChurnNoLongerTerminatesLease() throws {
         let old = ExternalRoute(destination: try IPv4CIDR("192.0.2.1/32"),
                                 gateway: "0:1:2:3:4:5", interface: "en7", flags: "UHLWI", isExpired: true)
         let baseline = try snapshot(rows: snapshot().routes.union([old]))
-        let changes = [
+        let churn = [
             ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWIi", isExpired: true),
             ExternalRoute(destination: old.destination, gateway: "0:1:2:3:4:6", interface: old.interface, flags: "UHLWIi", isExpired: true),
             ExternalRoute(destination: old.destination, gateway: old.gateway, interface: "en8", flags: "UHLWIi", isExpired: true),
             ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWIi", isExpired: false)
         ]
-        for (index, changed) in changes.enumerated() {
+        for changed in churn {
             let driver = try Driver(baseline); driver.rows.remove(old); driver.rows.insert(changed)
             let transaction = session(try plan(baseline: baseline), driver, Journal())
             transaction.start(consent: true)
-            if index == 0 {
-                XCTAssertEqual(transaction.state, .active)
-                XCTAssertNil(transaction.failure)
-                transaction.stop()
-                XCTAssertEqual(transaction.state, .closed)
-                XCTAssertEqual(transaction.postObservation, .unchanged)
-            } else {
-                XCTAssertEqual(transaction.failure, .networkChanged)
-                XCTAssertTrue(driver.adds.isEmpty)
-                XCTAssertTrue(transaction.snapshotRouteChangeShapes!.hasPrefix("ifref_only=false;"))
-                XCTAssertFalse(transaction.snapshotRouteChangeShapes!.contains(old.gateway))
-            }
+            XCTAssertEqual(transaction.state, .active)
+            XCTAssertNil(transaction.failure)
+            transaction.stop()
+            XCTAssertEqual(transaction.state, .closed)
+            XCTAssertEqual(transaction.postObservation, .unchanged)
+        }
+        // Disappearance of the cache row is equally ignored.
+        let vanished = try Driver(baseline); vanished.rows.remove(old)
+        let transaction = session(try plan(baseline: baseline), vanished, Journal())
+        transaction.start(consent: true)
+        XCTAssertEqual(transaction.state, .active)
+        transaction.stop()
+        XCTAssertEqual(transaction.state, .closed)
+        XCTAssertEqual(transaction.postObservation, .unchanged)
+    }
+    // The same field changes on a non-exempt row still terminate the lease.
+    func testFieldChangesOnNonExemptRowsStillTerminateLease() throws {
+        let old = ExternalRoute(destination: try IPv4CIDR("192.0.2.1/32"),
+                                gateway: "0:1:2:3:4:5", interface: "en7", flags: "UHLWIS", isExpired: true)
+        let baseline = try snapshot(rows: snapshot().routes.union([old]))
+        let changes = [
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWISi", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: "0:1:2:3:4:6", interface: old.interface, flags: "UHLWIS", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: "en8", flags: "UHLWIS", isExpired: true),
+            ExternalRoute(destination: old.destination, gateway: old.gateway, interface: old.interface, flags: "UHLWIS", isExpired: false)
+        ]
+        for changed in changes {
+            let driver = try Driver(baseline); driver.rows.remove(old); driver.rows.insert(changed)
+            let transaction = session(try plan(baseline: baseline), driver, Journal())
+            transaction.start(consent: true)
+            XCTAssertEqual(transaction.failure, .networkChanged)
+            XCTAssertTrue(driver.adds.isEmpty)
+            XCTAssertFalse(transaction.snapshotRouteChangeShapes!.contains(old.gateway))
         }
     }
     func testInterfaceReferenceExceptionNeverChangesOwnedRouteReadback() throws {
