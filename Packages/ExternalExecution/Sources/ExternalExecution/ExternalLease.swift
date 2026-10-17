@@ -365,17 +365,21 @@ public final class ExternalLeaseTransaction {
         let dnsChanged = Set(observed.observedDNSServers) != Set(plan.baseline.observedDNSServers)
         let routesAdded = rows.subtracting(plan.baseline.routes).count
         let routesRemoved = plan.baseline.routes.subtracting(rows).count
+        let epochRows = ExternalRouteEpoch.rows(rows)
+        let epochBaseline = ExternalRouteEpoch.rows(plan.baseline.routes)
         guard !interfacesChanged, !physicalPathsChanged, !dnsChanged,
-              ExternalRouteEpoch.rows(rows) == ExternalRouteEpoch.rows(plan.baseline.routes) else {
+              epochRows == epochBaseline else {
             snapshotChangeSummary = "interfaces_changed=\(interfacesChanged) physical_paths_changed=\(physicalPathsChanged) " +
                 "dns_changed=\(dnsChanged) routes_added=\(routesAdded) routes_removed=\(routesRemoved)"
-            func shapes(_ values: Set<ExternalRoute>) -> String {
-                values.map { row in
+            func shapes(_ values: Set<ExternalRoute>, limit: Int = 2) -> String {
+                let rendered = values.map { row in
                     let kind = row.interface.hasPrefix("utun") ? "utun" : (row.interface.hasPrefix("en") ? "en" : "other")
                     let flags = row.flags.filter { "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789".contains($0) }.prefix(24)
                     let gateway = (try? IPv4Address(row.gateway)) != nil ? "ipv4" : (row.gateway.hasPrefix("link#") ? "link" : "other")
                     return "p\(row.destination.prefixLength)/f=\(flags)/if=\(kind)/gw=\(gateway)/expired=\(row.isExpired)"
-                }.sorted().prefix(2).joined(separator: ",")
+                }.sorted()
+                let head = rendered.prefix(limit).joined(separator: ",")
+                return rendered.count > limit ? head + ",+\(rendered.count - limit)" : head
             }
             func ignoringInterfaceReference(_ values: Set<ExternalRoute>) -> Set<ExternalRoute> {
                 Set(values.map { row in
@@ -384,7 +388,7 @@ public final class ExternalLeaseTransaction {
                 })
             }
             let ifrefOnly = ignoringInterfaceReference(rows) == ignoringInterfaceReference(plan.baseline.routes)
-            snapshotRouteChangeShapes = "ifref_only=\(ifrefOnly);added=[\(shapes(rows.subtracting(plan.baseline.routes)))];removed=[\(shapes(plan.baseline.routes.subtracting(rows)))]"
+            snapshotRouteChangeShapes = "ifref_only=\(ifrefOnly);added=[\(shapes(rows.subtracting(plan.baseline.routes)))];removed=[\(shapes(plan.baseline.routes.subtracting(rows)))];epoch_added=[\(shapes(epochRows.subtracting(epochBaseline), limit: 4))];epoch_removed=[\(shapes(epochBaseline.subtracting(epochRows), limit: 4))]"
             throw ExternalLeaseFailure.networkChanged
         }
     }

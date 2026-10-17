@@ -159,7 +159,7 @@ final class ExternalLeaseTests: XCTestCase {
         XCTAssertEqual(t.snapshotChangeSummary,
                        "interfaces_changed=false physical_paths_changed=false dns_changed=false routes_added=1 routes_removed=0")
         XCTAssertFalse(t.snapshotChangeSummary!.contains("203.0.113"))
-        XCTAssertEqual(t.snapshotRouteChangeShapes, "ifref_only=false;added=[p24/f=UGSc/if=utun/gw=ipv4/expired=false];removed=[]")
+        XCTAssertEqual(t.snapshotRouteChangeShapes, "ifref_only=false;added=[p24/f=UGSc/if=utun/gw=ipv4/expired=false];removed=[];epoch_added=[p24/f=UGSc/if=utun/gw=ipv4/expired=false];epoch_removed=[]")
         XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("10.8.0.1"))
         XCTAssertFalse(t.snapshotRouteChangeShapes!.contains("utun42"))
     }
