@@ -37,3 +37,7 @@ DOMAIN 规则 → Helper 侧系统 DNS 解析 → /32 直连提案（来源标�
 - 约 70 秒样本，不声称小时级稳定性。
 - route_trial 仍为编译时显式开关、默认禁用；本次构建未公证，仅限本机自用。
 - DOMAIN-KEYWORD / APPLICATION 仍整体拒绝；Flow 层按 App/域名分流在互联网方向仍受 kill switch 限制。
+
+## 补充：长时稳定性第一次运行（同日稍后，16:43–16:48）
+
+为取分钟级以上样本，同方案再次发起 sustained 会话并以每 60 秒 curl 对照记录。结果：会话在约 **4.5 分钟后被 Helper 以 `networkChanged` 保守终止**（16:47:43 统一日志 `lease_terminal state=closed code=networkChanged owned=0 comparison=changed cleanup=none`），快照诊断为 `interfaces_changed=false physical_paths_changed=false dns_changed=false routes_added=3 routes_removed=2`，增删行形态均为 `p32/f=UHLWI(i)/if=en/gw=other`——即物理接口上**临时克隆邻居行（WASCLONED 内核缓存）整条出现/消失**，接口、物理路径、DNS 均无变化。路由自动撤销、目标回 VPN、零残留，fail-closed 方向正确；但 ADR-EX-INT-04 的 epoch 视图（仅归一化 i 标志、不忽略行增删）把这类内核缓存抖动判为网络变化，使 sustained 在正常流量下脆弱。该发现促成 ADR-EX-INT-11（epoch 豁免精确 flags 为 UHLWI/UHLWIi 的 /32 克隆行），修复后重跑。
