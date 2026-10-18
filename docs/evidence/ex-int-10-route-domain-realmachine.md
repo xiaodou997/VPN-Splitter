@@ -79,3 +79,37 @@ DOMAIN 规则 → Helper 侧系统 DNS 解析 → /32 直连提案（来源标�
 ## 阶段小结（run1–run4）
 
 修复前 4.5 分钟被 churn 误杀；豁免修复后 30 / 65 / 117 分钟，三次终止原因分别为：未知第三行（诊断已增强）、真实 VPN 隧道拆除（正确）、疑似睡眠相关网络变化（正确方向，细节未取得）。**sustained 长会话在真机上已达到小时级稳定**；剩余缺口：churn 发生时的豁免压测样本、睡眠/切网中途样本、以及 GUI 窗口退化修复。
+
+## 补充：域名边界功能验证（2026-10-18 上午，GUI 自动化操作）
+
+run4 之后按用户指示转向边界功能测试（不再追求更长稳定性样本）。三个边界方案以 `profiles.json` 直接写入、GUI「重新载入」生效，全部在分流会话页走真实 Helper 预检/确认/启动/停止链路。StrongVPN 在线（utun4，VPN 出口 216.131.72.246，宽带 183.208.21.82，网关 192.168.2.1/en0）。
+
+### T1 · 解析失败整体拒绝 —— PASS
+
+方案「边界T1-解析失败」：`DOMAIN nonexistent-zx9q8w.example.invalid`。预检结果：**Helper 拒绝预检 `domainResolutionFailed`**，会话状态 refused，不产生任何提案、不写路由。符合 ADR-EX-INT-10「解析失败整体拒绝」设计。
+
+### T2 · DOMAIN-SUFFIX 仅解析 apex —— 全链路 PASS
+
+方案「边界T2-SUFFIX-apex」：`DOMAIN-SUFFIX example.com`。
+
+1. 预检：两条提案 `104.20.23.154/32 (example.com 后缀 apex) → 192.168.2.1/en0 · wouldAdd`、`172.66.147.243/32 (example.com 后缀 apex) → ...`，`状态：prepared · domain_rules=1 domain_routes=2 truncated=no`——**后缀规则只解析 apex 本身且来源标注正确** ✓
+2. 现场确认后启动：`active · stage=add reply_type=1 mutation_attempts=2` ✓
+3. 路由验证：`route -n get 104.20.23.154` 与 `172.66.147.243` 均 gateway 192.168.2.1 / interface en0（宽带直连）；对照 `1.1.1.1` 仍 gateway 100.64.8.1 / utun4（VPN）✓；`curl https://example.com/` → **200** ✓
+4. GUI「停止 / 撤销」：两条路由 DELETE，`route -n get` 两 IP 均回 utun4 ✓
+5. 恢复页「核查恢复状态（只读）」→ **noRecovery** ✓ 零残留
+
+注：确认窗口 15 秒内完成「预检→勾选→开始」需以单条 AppleScript 连贯执行（辅助操作往返延迟会超窗，超时以 `notApplied` 安全关闭，无副作用——该超时路径也被顺带验证了两次）。
+
+### T3 · DOMAIN 多记录域名 —— 全链路 PASS
+
+方案「边界T3-多IP域名」：`DOMAIN www.apple.com`。
+
+1. 预检：本次系统 resolver 对 www.apple.com 只返回 1 条 A 记录（Akamai），提案 `23.62.122.207/32 (www.apple.com) → 192.168.2.1/en0 · wouldAdd`，`domain_rules=1 domain_routes=1 truncated=no` ✓
+2. 启动：`active · stage=add mutation_attempts=1`；`route -n get 23.62.122.207` → en0/192.168.2.1，对照 1.1.1.1 → utun4；`curl https://www.apple.com/` → **200** ✓
+3. 停止：`closed · stage=delete reply_type=2 mutation_attempts=2`，`route -n get` 回 utun4 ✓
+
+### 边界结论
+
+- 已覆盖：解析失败整体拒绝（T1）、DOMAIN-SUFFIX apex 多 A 记录（T2，2 条提案并列展示/应用/撤销）、普通 DOMAIN（T3）。
+- **未覆盖**：单域名 >8 条 A 记录的截断路径（`truncated=yes`，本轮 resolver 均未返回超过 2 条）与解析漂移（refresh diff 实际增删）的真机触发——前者留样本观察，后者需长时间运行自然出现。
+- 测试后已恢复默认方案「域名分流测试」并 GUI 重新载入确认。
