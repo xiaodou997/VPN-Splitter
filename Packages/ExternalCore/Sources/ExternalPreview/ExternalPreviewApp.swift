@@ -100,8 +100,11 @@ struct ExternalPreviewApp: App {
                 }
                 .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
                     model.cancel(); helper.invalidate(); watchdog.stop()
+                    healDegeneratedWindows()
                 }
         }
+        .defaultSize(width: 1080, height: 720)
+        .restorationBehavior(.disabled)
         .commands {
             CommandMenu("导航") {
                 Button("概览") { section = .overview }.keyboardShortcut("1", modifiers: .command)
@@ -148,6 +151,22 @@ struct ExternalPreviewApp: App {
         }
         Settings {
             ExternalSettingsView(helper: helper)
+        }
+    }
+}
+
+/// Display sleep can leave windows restored at a collapsed geometry on a vanished
+/// display (the "phantom mini window" defect, ex-int-10 run4: 125x124 at negative
+/// origin, unreadable AX tree). Wake resets any window that shrank below a usable
+/// size or landed outside every visible screen back to the default frame.
+@MainActor
+private func healDegeneratedWindows() {
+    let fallback = NSRect(x: 100, y: 100, width: 1080, height: 720)
+    for window in NSApplication.shared.windows {
+        let frame = window.frame
+        let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersects(frame) }
+        if frame.width < 400 || frame.height < 300 || !onScreen {
+            window.setFrame(fallback, display: true)
         }
     }
 }
