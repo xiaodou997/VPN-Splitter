@@ -77,18 +77,14 @@ run4 117 分钟已是当前最长；roadmap 只剩"churn 发生时被豁免的�
 
 用户已确认发行签名（Developer ID/公证/DMG）暂缓；但系统扩展真机激活仍需要 **Apple Development 开发签名 + development provisioning profile**——这是本地开发身份，不是发行。
 
-已完成（离线）：go1.27.1 本地 SDK（`PATH="$HOME/sdk/go1.27.1/bin:$PATH"` 前缀即可过 preflight，不动系统 Go）；`apps/macos/Config/Signing.local.xcconfig` 填好 `VPN_DEVELOPMENT_TEAM = B65GG63L78`（gitignored，留本机）。
+已完成（离线）：go1.27.1 本地 SDK（`PATH="$HOME/sdk/go1.27.1/bin:$PATH"` 前缀即可过 preflight，不动系统 Go）；`apps/macos/Config/Signing.local.xcconfig` 填好 `VPN_DEVELOPMENT_TEAM = V6M88BQG7C`（gitignored，留本机）。team 选择依据：B65GG63L78 的证书虽在本机 Keychain，但其 Apple ID 未登录 Xcode（`No Account for Team`），V6M88BQG7C 的账号已登录 Xcode 可用。development profile 已通过一次性 `-allowProvisioningUpdates` 构建拉取到本机；`provider-build --sign` 复验 PASS（`codesign --verify --strict` 通过，TeamIdentifier=V6M88BQG7C）。注意：对生成工程直接跑 xcodebuild 时必须用绝对路径（相对路径会触发 SPM 模块解析失败）。
 
 待用户操作（按序）：
 
-1. 👤 Xcode 登录 team B65GG63L78 的 Apple ID，打开 apps/macos 集成工程，两个 target（App + PacketTunnel）各做一次 Automatic signing：注册 App ID（`io.github.xiaodou997.VPNSplitter` / `…PacketTunnel`）、App Group（`group.io.github.xiaodou997.VPNSplitter.managed`）、NE `packet-tunnel-provider` 与 `system-extension.install` entitlement，并让 Xcode 下载两份 development profile 到 `~/Library/MobileDevice/Provisioning Profiles/`。
-2. 🤖 `PATH="$HOME/sdk/go1.27.1/bin:$PATH" /bin/bash dev.sh provider-build --sign`：引擎 preflight + Release 构建 + `codesign --verify --strict` 结构校验（不等于系统接受）。
-3. 👤 Finder 从构建输出路径拷贝 .app 到 /Applications；系统设置手动批准系统扩展（🔐）。
-4. 合成配置保存/交付（首轮单 peer、IPv4 数字端点、Include、无 DNS 字段，ADR-WG-INT-10 边界）；验证取消与超时路径。
-5. 👤 现场授权启动真实隧道：观察握手、指定目标 VPN 与直连双路径对照（照 S0 双出口证据格式）。
-6. 停止隧道，独立观察系统恢复（路由/DNS 回物理）；证据 → docs/evidence/wg-int-11-real-closure.md。
-
-已知阻塞记录：本机零 development profile（Xcode 操作后消除）；B65GG63L78 team 的受限 entitlement 获批状态未验证（Xcode signing 时会暴露）。
+1. 👤 Finder 从 `.local/wireguard-engine/provider.52jf5e4t/Products/Release/VPN-Splitter.app` 拷贝到 /Applications；系统设置手动批准系统扩展（🔐 管理员）。
+2. 合成配置保存/交付（首轮单 peer、IPv4 数字端点、Include、无 DNS 字段，ADR-WG-INT-10 边界）；验证取消与超时路径。
+3. 👤 现场授权启动真实隧道：观察握手、指定目标 VPN 与直连双路径对照（照 S0 双出口证据格式）。
+4. 停止隧道，独立观察系统恢复（路由/DNS 回物理）；证据 → docs/evidence/wg-int-11-real-closure.md。
 
 ## 8. 汇总：关闭判定
 

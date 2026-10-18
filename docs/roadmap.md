@@ -1,6 +1,6 @@
 # v0.1 开发路线图与任务拆分
 
-更新：2026-10-18 / External MVP 关闭与 WG 真机闭环推进：GUI 幻影小窗修复（defaultSize+唤醒 frame 自愈+禁用 frame 恢复，真机验证待做）、EX-FLOW-04 前置分桶计数 [ADR-EX-FLOW-04](adr/ADR-EX-FLOW-04-hostname-bucketing.md) 已立、churn 采样工具入库、[真机运行手册](external-mvp-closure-runbook.md) 落地、WG 离线准备就绪（go1.27.1 本地 SDK + Signing.local.xcconfig，缺 Xcode development profile）。同日早前：新增 EX-RULE-02 GEOIP 归属规则规划（ADR-EX-RULE-02，Proposed，未实现）。此前 2026-10-15 / EX-INT-09 VPN 隔离守卫真机断开/重连自动隔离闭环通过；EX-INT-03B 协议 v2 真机 XPC 往返与受控 route-trial 闭环通过；FLOW-02 TCP DIRECT relay 数据面真机样本通过。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
+更新：2026-10-18 / External MVP 关闭与 WG 真机闭环推进：GUI 幻影小窗修复（defaultSize+唤醒 frame 自愈+禁用 frame 恢复，真机验证待做）、EX-FLOW-04 前置分桶计数 [ADR-EX-FLOW-04](adr/ADR-EX-FLOW-04-hostname-bucketing.md) 已立、churn 采样工具入库、[真机运行手册](external-mvp-closure-runbook.md) 落地、WG 签名构建链已通（go1.27.1 本地 SDK + Signing.local.xcconfig=team V6M88BQG7C + development profile 已拉取，`provider-build --sign` PASS；剩余：安装/批准扩展与真实隧道测试）。同日早前：新增 EX-RULE-02 GEOIP 归属规则规划（ADR-EX-RULE-02，Proposed，未实现）。此前 2026-10-15 / EX-INT-09 VPN 隔离守卫真机断开/重连自动隔离闭环通过；EX-INT-03B 协议 v2 真机 XPC 往返与受控 route-trial 闭环通过；FLOW-02 TCP DIRECT relay 数据面真机样本通过。按用户重新确认的业务优先级，**External 第三方 VPN 分流成为当前主线，OpenVPN 降为后续 Backlog，WireGuard 保留已有基本链路成果、暂不抢 External 主线**。排队调整见 [ADR-EX-INT-01](adr/ADR-EX-INT-01-external-first.md)，不修改 S0–S5 验收标准或 v0.1 能力范围。
 
 ## 当前交付与下一步
 
