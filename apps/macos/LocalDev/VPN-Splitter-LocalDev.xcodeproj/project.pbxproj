@@ -27,7 +27,7 @@
         };
         A10000000000000000000003 = {
             isa = PBXGroup;
-            children = (A10000000000000000000006, A10000000000000000000004);
+            children = (A10000000000000000000006, A10000000000000000000023, A10000000000000000000004);
             sourceTree = "<group>";
         };
         A10000000000000000000004 = {
@@ -39,7 +39,7 @@
         A10000000000000000000005 = {
             isa = PBXNativeTarget;
             buildConfigurationList = A10000000000000000000008;
-            buildPhases = (A10000000000000000000009, A1000000000000000000000A);
+            buildPhases = (A10000000000000000000009, A1000000000000000000000A, A10000000000000000000025);
             buildRules = ();
             dependencies = ();
             name = "VPN-Splitter-LocalDev";
@@ -80,6 +80,19 @@
             runOnlyForDeploymentPostprocessing = 0;
         };
         A1000000000000000000000B = { isa = PBXBuildFile; fileRef = A10000000000000000000006; };
+        A10000000000000000000023 = {
+            isa = PBXFileReference;
+            lastKnownFileType = folder.assetcatalog;
+            path = Assets.xcassets;
+            sourceTree = "<group>";
+        };
+        A10000000000000000000024 = { isa = PBXBuildFile; fileRef = A10000000000000000000023; };
+        A10000000000000000000025 = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (A10000000000000000000024);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
         A10000000000000000000010 = {
             isa = XCBuildConfiguration;
             buildSettings = {
@@ -125,6 +138,7 @@
                 MARKETING_VERSION = 0.1.0;
                 CURRENT_PROJECT_VERSION = 1;
                 SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+                ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
             };
             name = Debug;
         };
@@ -147,6 +161,7 @@
                 MARKETING_VERSION = 0.1.0;
                 CURRENT_PROJECT_VERSION = 1;
                 SWIFT_TREAT_WARNINGS_AS_ERRORS = YES;
+                ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
             };
             name = Release;
         };

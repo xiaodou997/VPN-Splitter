@@ -126,7 +126,18 @@ struct ManagedConfigurationView: View {
     var body: some View {
         ScrollView {
         VStack(alignment: .leading, spacing: 12) {
-            Text("正式配置与 WireGuard IPv4 联调").font(.title2)
+            HStack(spacing: 12) {
+                Image("BrandMascot")
+                    .resizable().scaledToFit().frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(.quaternary, lineWidth: 0.5))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("VPN-Splitter").font(.title3).bold()
+                    Text("紫色猫头鹰 · 正式配置与交付").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
             Text("首轮只接受单 Peer、IPv4 数字端点、无 DNS 字段的 Include 配置。保存及交付都会检查脚本、密钥格式、AllowedIPs 和规则冲突。")
             HStack {
                 Button("选择 .conf") { model.selectConfiguration() }

@@ -24,10 +24,11 @@ def build_project():
     plist_files = [file('plist.'+n,n+'/Info.plist','text.plist.xml') for n in ('App','PacketTunnel')]
     config_files = {n:file('config.'+n,'Config/'+n+'.xcconfig','text.xcconfig') for n in ('Debug','Release','DeveloperID')}
     extra_config = [file('config.'+n,'Config/'+n,'text.xcconfig' if n.endswith('xcconfig') else 'text.plist.entitlements') for n in ('Base.xcconfig','App.Development.entitlements','App.DeveloperID.entitlements','PacketTunnel.Development.entitlements','PacketTunnel.DeveloperID.entitlements')]
+    assets = file('app.Assets.xcassets', 'App/Assets.xcassets', 'folder.assetcatalog')
     app_product = add('app.product', isa='PBXFileReference', explicitFileType='wrapper.application', includeInIndex='0', path='VPN-Splitter.app', sourceTree='BUILT_PRODUCTS_DIR')
     tunnel_product = add('tunnel.product', isa='PBXFileReference', explicitFileType='wrapper.system-extension', includeInIndex='0', path='$(VPN_EXTENSION_BUNDLE_ID).systemextension', sourceTree='BUILT_PRODUCTS_DIR')
     products = add('products', isa='PBXGroup', children=[app_product,tunnel_product], name='Products', sourceTree='<group>')
-    group = add('root', isa='PBXGroup', children=app_files+tunnel_files+plist_files+list(config_files.values())+extra_config+[products], sourceTree='<group>')
+    group = add('root', isa='PBXGroup', children=app_files+tunnel_files+plist_files+list(config_files.values())+extra_config+[assets,products], sourceTree='<group>')
     package = add('package',isa='XCLocalSwiftPackageReference',relativePath='../../Packages/PolicyCore')
     managed_package = add('managed.package',isa='XCLocalSwiftPackageReference',relativePath='../../Packages/ProviderConfiguration')
     for role, files, product in [('app',app_files,app_product),('tunnel',tunnel_files,tunnel_product)]:
@@ -40,13 +41,14 @@ def build_project():
         frameworks=add(role+'.frameworks',isa='PBXFrameworksBuildPhase',buildActionMask='2147483647',files=[link,managed_link],runOnlyForDeploymentPostprocessing='0')
         configs=[]
         for name in config_files:
-            settings={'PRODUCT_BUNDLE_IDENTIFIER':'$(VPN_APP_BUNDLE_ID)' if role=='app' else '$(VPN_EXTENSION_BUNDLE_ID)',
+            settings={'ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'} if role=='app' else {}
+            settings.update({'PRODUCT_BUNDLE_IDENTIFIER':'$(VPN_APP_BUNDLE_ID)' if role=='app' else '$(VPN_EXTENSION_BUNDLE_ID)',
                 'PRODUCT_NAME':'VPN-Splitter' if role=='app' else '$(VPN_EXTENSION_BUNDLE_ID)',
                 'PRODUCT_MODULE_NAME':'VPNSplitterMac' if role=='app' else 'VPNPacketTunnel',
                 'INFOPLIST_FILE':('App' if role=='app' else 'PacketTunnel')+'/Info.plist',
                 'CODE_SIGN_ENTITLEMENTS':'Config/'+('App' if role=='app' else 'PacketTunnel')+'.'+('DeveloperID' if name=='DeveloperID' else 'Development')+'.entitlements',
                 'SKIP_INSTALL':'NO' if role=='app' else 'YES',
-                'LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/../Frameworks']}
+                'LD_RUNPATH_SEARCH_PATHS':['$(inherited)','@executable_path/../Frameworks']})
             if role=='tunnel':
                 settings.update({'EXECUTABLE_NAME':'VPNPacketTunnel','WRAPPER_EXTENSION':'systemextension','ENABLE_APP_SANDBOX':'YES'})
             else:
@@ -58,6 +60,8 @@ def build_project():
         phases=[sources,frameworks]
         dependencies=[]
         if role=='app':
+            resfile=add('app.resources.file',isa='PBXBuildFile',fileRef=assets)
+            phases.append(add('app.resources',isa='PBXResourcesBuildPhase',buildActionMask='2147483647',files=[resfile],runOnlyForDeploymentPostprocessing='0'))
             embedfile=add('embed.file',isa='PBXBuildFile',fileRef=tunnel_product,settings={'ATTRIBUTES':['CodeSignOnCopy','RemoveHeadersOnCopy']})
             phases.append(add('embed',isa='PBXCopyFilesBuildPhase',buildActionMask='2147483647',dstPath='$(CONTENTS_FOLDER_PATH)/Library/SystemExtensions',dstSubfolderSpec='16',files=[embedfile],name='Embed System Extensions',runOnlyForDeploymentPostprocessing='0'))
             proxy=add('proxy',isa='PBXContainerItemProxy',containerPortal=ident('project'),proxyType='1',remoteGlobalIDString=ident('tunnel.target'),remoteInfo='PacketTunnel')
